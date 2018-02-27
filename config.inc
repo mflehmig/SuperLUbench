@@ -1,13 +1,12 @@
 CC=gcc
 MPICC=mpicc
 CFLAGS=-c -Wall -std=c99 -O0 -g
-OMP=-fopenmp
 
 # SuperLU
-I_SUPERLU=-I/usr/include/SuperLU/
-LD_SUPERLU=-lsuperlu
-#I_SUPERLU=-I/home/mf/Downloads/SuperLU_5.2.1/SRC/
-#LD_SUPERLU=-L/home/mf/Downloads/SuperLU_5.2.1/build_debug/SRC/ -lsuperlu
+#I_SUPERLU=-I/usr/include/SuperLU/
+#LD_SUPERLU=-lsuperlu
+I_SUPERLU=-I/home/mf/Downloads/SuperLU_5.2.1/SRC/
+LD_SUPERLU=-L/home/mf/Downloads/SuperLU_5.2.1/build_debug/SRC/ -lsuperlu -Wl,-rpath,/home/mf/Downloads/SuperLU_5.2.1/build_debug/SRC/
 
 # SuperLU_MT
 I_SUPERLUMT=-I/usr/include/SuperLUMT

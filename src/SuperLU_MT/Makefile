@@ -10,7 +10,7 @@ $(EXECUTABLE): $(OBJECTS)
 	$(CC) $(LD_SUPERLUMT) $(OBJECTS) -o $@
 
 .c.o:
-	$(CC) $(OMP) $(CFLAGS) $(I_SUPERLUMT) $< -o $@
+	$(CC) $(CFLAGS) $(I_SUPERLUMT) $< -o $@
 
 .PHONY: clean
 clean:
