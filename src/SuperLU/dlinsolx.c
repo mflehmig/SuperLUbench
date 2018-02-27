@@ -24,9 +24,12 @@
 #include "../dreadMM.h"
 #include "../Util.h"
 
-void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX, double* eps);
+
+void parse_command_line(int argc, char *argv[], int *lwork, double *u,
+                        yes_no_t *equil, trans_t *trans, char *fileA,
+                        char *fileB, char *fileX);
 colperm_t getSuperLUOrdering();
+
 
 int main(int argc, char *argv[])
 {
@@ -59,7 +62,6 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
-  double eps = 5e-8;
   int permc_spec;
 
   /* Defaults */
@@ -82,10 +84,12 @@ int main(int argc, char *argv[])
    options.PrintStat = YES;
    */
   set_default_options(&options);
-  options.ColPerm = getSuperLUOrdering();
+  permc_spec = getSuperLUOrdering();
+  options.ColPerm = permc_spec;
 
   /* Can use command line input to modify the defaults. */
-  parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB, fileX, &eps);
+  parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
+                     fileX);
   options.Equil = equil;
   options.DiagPivotThresh = u;
   options.Trans = trans;
@@ -177,20 +181,13 @@ int main(int argc, char *argv[])
   StatInit(&stat);
 
   long long start = current_timestamp();
-  /*
-   * Get column permutation vector perm_c[], according to permc_spec:
-   *   permc_spec = 0: natural ordering
-   *   permc_spec = 1: minimum degree ordering on structure of A'*A
-   *   permc_spec = 2: minimum degree ordering on structure of A'+A
-   *   permc_spec = 3: approximate minimum degree for unsymmetric matrices
-   */
-  permc_spec = 1;
+  /* Get column permutation vector perm_c[], according to permc_spec. */
   get_perm_c(permc_spec, &A, perm_c);
 
   /* Solve the system and compute the condition number
    and error bounds using dgssvx.      */
-  dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work, lwork, &B, &X, &rpg, &rcond, ferr, berr, &Glu,
-         &mem_usage, &stat, &info);
+  dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work, lwork,
+         &B, &X, &rpg, &rcond, ferr, berr, &Glu, &mem_usage, &stat, &info);
   long long finish = current_timestamp();
   printf("dgssvx(): info %d\n", info);
 
@@ -212,9 +209,11 @@ int main(int argc, char *argv[])
     printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
     printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
     printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
-    printf("FILL ratio = %.1f\n", (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
+    printf("FILL ratio = %.1f\n",
+           (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
 
-    printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6, mem_usage.total_needed / 1e6);
+    printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
+           mem_usage.total_needed / 1e6);
     printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
     fflush(stdout);
 
@@ -257,13 +256,14 @@ int main(int argc, char *argv[])
 /*
  * Parse command line inputs.
  */
-void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX, double* eps)
+void parse_command_line(int argc, char *argv[], int *lwork, double *u,
+                        yes_no_t *equil, trans_t *trans, char *fileA,
+                        char *fileB, char *fileX)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:a:")) != EOF)
+  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:")) != EOF)
   {
     switch (c)
     {
@@ -296,9 +296,6 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t 
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
         break;
-      case 'a':
-        *eps = atof(optarg);
-        break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);
         break;
@@ -306,8 +303,6 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t 
   }
 }
 
-
-//------------------------------------------------------------------------------
 /**
  * \brief Return column permutation specification for SuperLU (seq and mt).
  *
@@ -320,34 +315,41 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t 
  */
 inline colperm_t getSuperLUOrdering()
 {
-  colperm_t ret = COLAMD; // Default value.
+  colperm_t ret = COLAMD;  // Default value.
   printf("SuperLU Ordering: ");
   const char* env_p = getenv("ORDERING");
   // if(const char* env_p = getenv("ORDERING")) {
-  if (env_p != NULL) {
+  if (env_p != NULL)
+  {
     // std::string env(env_p);
     //if (env.compare("NATURAL") == 0) {
-    if (strcmp(env_p, "NATURAL") == 0) {
+    if (strcmp(env_p, "NATURAL") == 0)
+    {
       printf("NATURAL\n");
       return NATURAL;
     }
-    if (strcmp(env_p, "MMD_ATA") == 0) {
+    if (strcmp(env_p, "MMD_ATA") == 0)
+    {
       printf("MMD_ATA\n");
       return MMD_ATA;
     }
-    if (strcmp(env_p,"MMD_AT_PLUS_A") == 0) {
+    if (strcmp(env_p, "MMD_AT_PLUS_A") == 0)
+    {
       printf("MMD_AT_PLUS_A\n");
       return MMD_AT_PLUS_A;
     }
-    if (strcmp(env_p,"COLAMD") == 0) {
+    if (strcmp(env_p, "COLAMD") == 0)
+    {
       printf("COLAMD\n");
       return COLAMD;
     }
-    if (strcmp(env_p,"METIS_AT_PLUS_A") == 0) {
+    if (strcmp(env_p, "METIS_AT_PLUS_A") == 0)
+    {
       printf("METIS_AT_PLUS_A\n");
       return METIS_AT_PLUS_A;
     }
-    if (strcmp(env_p,"PARMETIS") == 0) {
+    if (strcmp(env_p, "PARMETIS") == 0)
+    {
       printf("PARMETIS\n");
       return PARMETIS;
     }

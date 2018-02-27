@@ -22,7 +22,13 @@
 #include "../Util.h"
 #include "../dreadMM.h"
 
-void parse_command_line();
+void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
+                        int_t *w, int_t *relax, double *u, fact_t *fact,
+                        trans_t *trans, yes_no_t *refact, equed_t *equed,
+                        char *fileA, char *fileB, char *fileX);
+colperm_t getSuperLUOrdering();
+int getNumThreads();
+
 
 int main(int argc, char *argv[])
 {
@@ -43,7 +49,7 @@ int main(int argc, char *argv[])
   void *work;
   superlumt_options_t superlumt_options;
   int_t info, lwork, nrhs, ldx, panel_size, relax;
-  int_t m, n, nnz, permc_spec, i;
+  int_t m, n, nnz, i;
   double *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
@@ -52,10 +58,10 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
-  double eps = 5e-8;
+  colperm_t permc_spec;
 
   /* Default parameters to control factorization. */
-  nprocs = 1;
+  nprocs = getNumThreads();
   fact = EQUILIBRATE;
   trans = NOTRANS;
   equed = NOEQUIL;
@@ -68,45 +74,19 @@ int main(int argc, char *argv[])
   lwork = 0;
   nrhs = 1;
 
+  permc_spec = getSuperLUOrdering();
+
   /* Command line options to modify default behaviour. */
-  parse_command_line(argc, argv, &nprocs, &lwork, &panel_size, &relax, &u, &fact, &trans, &refact, &equed, fileA,
-                     fileB, fileX, &eps);
+  parse_command_line(argc, argv, &nprocs, &lwork, &panel_size, &relax, &u,
+                     &fact, &trans, &refact, &equed, fileA, fileB, fileX);
 
   if (lwork > 0)
   {
     work = SUPERLU_MALLOC(lwork);
     printf("Use work space of size LWORK = " IFMT " bytes\n", lwork);
     if (!work)
-    {
       SUPERLU_ABORT("DLINSOLX: cannot allocate work[]");
-    }
   }
-
-#if ( PRNTlevel==1 )
-  cpp_defs();
-  printf("int_t %d bytes\n", sizeof(int_t));
-#endif
-
-//#define HB
-// MS: We want Matrix Market Format
-//#define MT
-//#if defined( DEN )
-//  m = n;
-//  nnz = n * n;
-//  dband(n, n, nnz, &a, &asub, &xa);
-//#elif defined( BAND )
-//  m = n;
-//  nnz = (2*b+1) * n;
-//  dband(n, b, nnz, &a, &asub, &xa);
-//#elif defined( BD )
-//  nb = 5;
-//  bs = 200;
-//  m = n = bs * nb;
-//  nnz = bs * bs * nb;
-//  dblockdiag(nb, bs, nnz, &a, &asub, &xa);
-//#elif defined( HB )
-//  dreadhb(&m, &n, &nnz, &a, &asub, &xa);
-//#else
 
   /* Read matrix A from a file in Matrix Market format.*/
   FILE *fp;
@@ -122,7 +102,8 @@ int main(int argc, char *argv[])
 
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
   Astore = A.Store;
-  printf("Dimension " IFMT "x" IFMT "; # nonzeros " IFMT "\n", A.nrow, A.ncol, Astore->nnz);
+  printf("Dimension " IFMT "x" IFMT "; # nonzeros " IFMT "\n", A.nrow, A.ncol,
+         Astore->nnz);
 
   if (!(rhsb = doubleMalloc(m * nrhs)))
     SUPERLU_ABORT("Malloc fails for rhsb[].");
@@ -184,7 +165,6 @@ int main(int argc, char *argv[])
    *   permc_spec = 2: minimum degree ordering on structure of A'+A
    *   permc_spec = 3: approximate minimum degree for unsymmetric matrices
    */
-  permc_spec = 1;
   get_perm_c(permc_spec, &A, perm_c);
 
   superlumt_options.nprocs = nprocs;
@@ -197,7 +177,7 @@ int main(int argc, char *argv[])
   superlumt_options.drop_tol = drop_tol;
   superlumt_options.diag_pivot_thresh = u;
   superlumt_options.SymmetricMode = NO;
-  superlumt_options.PrintStat = NO;
+  superlumt_options.PrintStat = YES;
   superlumt_options.perm_c = perm_c;
   superlumt_options.perm_r = perm_r;
   superlumt_options.work = work;
@@ -214,8 +194,8 @@ int main(int argc, char *argv[])
    * and error bounds using pdgssvx.
    */
   long long start = current_timestamp();
-  pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L, &U, &B, &X, &rpg, &rcond, ferr, berr,
-          &superlu_memusage, &info);
+  pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L, &U,
+          &B, &X, &rpg, &rcond, ferr, berr, &superlu_memusage, &info);
   long long finish = current_timestamp();
   printf("pdgssvx(): info " IFMT "\n", info);
 
@@ -225,7 +205,7 @@ int main(int argc, char *argv[])
     printf("Recip. condition number = %e\n", rcond);
     printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
     for (i = 0; i < nrhs; ++i)
-      printf(IFMT "%16e%16e\n", i+1, ferr[i], berr[i]);
+      printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
 
     Lstore = (SCPformat *) L.Store;
     Ustore = (NCPformat *) U.Store;
@@ -233,10 +213,10 @@ int main(int argc, char *argv[])
     printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
     printf("No of nonzeros in L+U = " IFMT "\n", Lstore->nnz + Ustore->nnz - n);
     printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
-           superlu_memusage.for_lu/1e6, superlu_memusage.total_needed/1e6,
+           superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
            superlu_memusage.expansions);
     printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
-    printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish-start));
+    printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
     fflush(stdout);
 
     /* This is how you could access the solution matrix. */
@@ -246,7 +226,6 @@ int main(int argc, char *argv[])
 //      printf("Computed and provided solutions match within %g eps.\n", eps);
 //    else
 //      printf("Computed and provided solutions DO NOT match within %g eps.\n", eps);
-
     dinf_norm_error(nrhs, &X, xact);
   }
   else if (info > 0 && lwork == -1)
@@ -279,14 +258,15 @@ int main(int argc, char *argv[])
 /*
  * Parse command line options.
  */
-void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork, int_t *w, int_t *relax, double *u,
-                        fact_t *fact, trans_t *trans, yes_no_t *refact, equed_t *equed, char *fileA,
-                        char *fileB, char *fileX, double* eps)
+void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
+                        int_t *w, int_t *relax, double *u, fact_t *fact,
+                        trans_t *trans, yes_no_t *refact, equed_t *equed,
+                        char *fileA, char *fileB, char *fileX)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:r:e:A:b:x:a:")) != EOF)
+  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:r:e:A:b:x:")) != EOF)
   {
     switch (c)
     {
@@ -339,12 +319,102 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork, int
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
         break;
-      case 'a':
-        *eps = atof(optarg);
-        break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);
         break;
     }
   }
 }
+
+/**
+ * \brief Return value of env. variable OMP_NUM_THREADS.
+ */
+int getNumThreads()
+{
+  int nT;
+  const char* env = getenv("OMP_NUM_THREADS");
+  // if(const char* env_p = getenv("ORDERING")) {
+  if (env != NULL)
+  {
+    nT = atoi(env);
+    if (nT <= 0)
+    {
+      printf(
+          "\nWARNING: Value of OMP_NUM_THREADS is less or equal to zero. Set "
+          "number of threads to 1.\n");
+      nT = 1;
+    }
+  }
+  else
+  {
+    printf(
+        "\nWARNING: Number of threads is not specified. Set it via environment"
+        "variable OMP_NUM_THREADS=NUM. Use default value of 1 thread.\n");
+    nT = 1;
+  }
+  return nT;
+}
+
+/**
+ * \brief Return column permutation specification for SuperLU_MT.
+ *
+ * The user can specify the column permutation to use via environment variable
+ * ORDERING, e.g., ORDERING=NATURAL. Thus, we can test the  different options
+ * without recompiling ;-)
+ */
+inline colperm_t getSuperLUOrdering()
+{
+  colperm_t ret = COLAMD;  // Default value.
+  printf("SuperLU Ordering: ");
+  const char* env_p = getenv("ORDERING");
+  // if(const char* env_p = getenv("ORDERING")) {
+  if (env_p != NULL)
+  {
+    // std::string env(env_p);
+    //if (env.compare("NATURAL") == 0) {
+    if (strcmp(env_p, "NATURAL") == 0)
+    {
+      printf("NATURAL\n");
+      return NATURAL;
+    }
+    if (strcmp(env_p, "MMD_ATA") == 0)
+    {
+      printf("MMD_ATA\n");
+      return MMD_ATA;
+    }
+    if (strcmp(env_p, "MMD_AT_PLUS_A") == 0)
+    {
+      printf("MMD_AT_PLUS_A\n");
+      return MMD_AT_PLUS_A;
+    }
+    if (strcmp(env_p, "COLAMD") == 0)
+    {
+      printf("COLAMD\n");
+      return COLAMD;
+    }
+    if (strcmp(env_p, "METIS_AT_PLUS_A") == 0)
+    {
+      printf("METIS_AT_PLUS_A\n");
+      return METIS_AT_PLUS_A;
+    }
+    if (strcmp(env_p, "PARMETIS") == 0)
+    {
+      printf("PARMETIS\n");
+      return PARMETIS;
+    }
+    // ZOLTAN is only defined in SuperLU, not in SuperLU_MT. But since the user
+    // guide does not hold any information about ZOLTAN, we do not use it.
+//    if (strcmp(env_p,"ZOLTAN") == 0) {
+//      //printf( "ZOLTAN\n";
+//      m_warning(E_NULL, "Hqp_IpMatrix::getPermcSpec ZOLTAN is not enabled. "
+//                        "Set to COLAMD.");
+//    } else if (env.compare("MY_PERMC") == 0) {
+//      //printf( "MY_PERMC\n";
+//      ret = MY_PERMC;
+//    }
+    printf("Info: Not a valid Ordering. Use COLAMD.\n");
+  }
+  printf("COLAMD\n");
+  return ret;
+}
+

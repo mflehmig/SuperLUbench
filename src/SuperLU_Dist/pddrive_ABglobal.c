@@ -24,8 +24,9 @@
 #include "../Util.h"
 #include "../dreadMM.h"
 
-void parse_command_line(int argc, char *argv[], int* nprow, int* npcol, char *fileA, char *fileB, char *fileX, double* eps);
-
+void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
+                        char *fileA, char *fileB, char *fileX);
+colperm_t getSuperLUOrdering();
 
 /*! \brief
  *
@@ -68,7 +69,6 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128];
   char fileX[128];
-  double eps = 5e-8;
 
   nprow = 1; /* Default process rows.      */
   npcol = 1; /* Default process columns.   */
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
   MPI_Init(&argc, &argv);
 
   /* Parse command line argv[]. */
-  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX, &eps);
+  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX);
 
   /* ------------------------------------------------------------
    INITIALIZE THE SUPERLU PROCESS GRID.
@@ -132,7 +132,8 @@ int main(int argc, char *argv[])
   }
 
   /* Create compressed column matrix for A. */
-  dCreate_CompCol_Matrix_dist(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
+  dCreate_CompCol_Matrix_dist(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D,
+                              SLU_GE);
 
   /* Generate the exact solution and compute the right-hand side. */
   if (!(b = doubleMalloc_dist(m * nrhs)))
@@ -165,6 +166,8 @@ int main(int argc, char *argv[])
    options.PrintStat = YES;
    */
   set_default_options_dist(&options);
+  options.ColPerm = getSuperLUOrdering();
+
 
   if (!iam)
   {
@@ -181,19 +184,25 @@ int main(int argc, char *argv[])
 
   long long start = current_timestamp();
   /* Call the linear equation solver. */
-  pdgssvx_ABglobal(&options, &A, &ScalePermstruct, b, ldb, nrhs, &grid, &LUstruct, berr, &stat, &info);
+  pdgssvx_ABglobal(&options, &A, &ScalePermstruct, b, ldb, nrhs, &grid,
+                   &LUstruct, berr, &stat, &info);
   long long finish = current_timestamp();
   /* Compare value of info with A->ncol (=m). */
   if (!iam)
   {
-    if (info == 0) {
+    if (info == 0)
+    {
       printf("SUCCESS: pdgssvx() returns info %d which means FINE\n", info);
-      printf("Time for pdgssvx_ABglobal() [1e-6 s]: %lli\n", (finish-start));
+      printf("Time for pdgssvx_ABglobal() [1e-6 s]: %lli\n", (finish - start));
     }
     if (info > 0 && info <= m)
-      printf("FAILED: pdgssvx() returns info %d which means U(%d,%d) is exactly zero\n", info, info, info);
+      printf(
+          "FAILED: pdgssvx() returns info %d which means U(%d,%d) is exactly zero\n",
+          info, info, info);
     if (info > 0 && info > m)
-      printf("FAILED: pdgssvx() returns info %d which means memory allocation failed\n", info);
+      printf(
+          "FAILED: pdgssvx() returns info %d which means memory allocation failed\n",
+          info);
   }
 
   /* Check the accuracy of the solution (only if pdgssvx_ABglobal succeeded). */
@@ -225,16 +234,16 @@ int main(int argc, char *argv[])
   MPI_Finalize();
 }
 
-
 /*
  * Parse command line options.
  */
-void parse_command_line(int argc, char *argv[], int* nprow, int* npcol, char *fileA, char *fileB, char *fileX, double* eps)
+void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
+                        char *fileA, char *fileB, char *fileX)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hr:c:A:b:x:a:")) != EOF)
+  while ((c = getopt(argc, argv, "hr:c:A:b:x:")) != EOF)
   {
     switch (c)
     {
@@ -259,9 +268,6 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol, char *fi
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
         break;
-      case 'a':
-        *eps = atof(optarg);
-        break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);
         break;
@@ -269,4 +275,68 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol, char *fi
   }
 }
 
+
+/**
+ * \brief Return column permutation specification for SuperLU_DIST.
+ *
+ * The user can specify the column permutation to use via environment variable
+ * ORDERING, e.g., ORDERING=NATURAL. Thus, we can test the  different options
+ * without recompiling ;-)
+ *
+ */
+inline colperm_t getSuperLUOrdering()
+{
+  colperm_t ret = NATURAL;  // Default value.
+  printf("SuperLU Ordering: ");
+  const char* env_p = getenv("ORDERING");
+  // if(const char* env_p = getenv("ORDERING")) {
+  if (env_p != NULL)
+  {
+    // std::string env(env_p);
+    //if (env.compare("NATURAL") == 0) {
+    if (strcmp(env_p, "NATURAL") == 0)
+    {
+      printf("NATURAL\n");
+      return NATURAL;
+    }
+    if (strcmp(env_p, "MMD_ATA") == 0)
+    {
+      printf("MMD_ATA\n");
+      return MMD_ATA;
+    }
+    if (strcmp(env_p, "MMD_AT_PLUS_A") == 0)
+    {
+      printf("MMD_AT_PLUS_A\n");
+      return MMD_AT_PLUS_A;
+    }
+    if (strcmp(env_p, "COLAMD") == 0)
+    {
+      printf("COLAMD\n");
+      return COLAMD;
+    }
+    if (strcmp(env_p, "METIS_AT_PLUS_A") == 0)
+    {
+      printf("METIS_AT_PLUS_A\n");
+      return METIS_AT_PLUS_A;
+    }
+    if (strcmp(env_p, "PARMETIS") == 0)
+    {
+      printf("PARMETIS\n");
+      return PARMETIS;
+    }
+    // ZOLTAN is only defined in SuperLU, not in SuperLU_MT. But since the user
+    // guide does not hold any information about ZOLTAN, we do not use it.
+//    if (strcmp(env_p,"ZOLTAN") == 0) {
+//      //printf( "ZOLTAN\n";
+//      m_warning(E_NULL, "Hqp_IpMatrix::getPermcSpec ZOLTAN is not enabled. "
+//                        "Set to COLAMD.");
+//    } else if (env.compare("MY_PERMC") == 0) {
+//      //printf( "MY_PERMC\n";
+//      ret = MY_PERMC;
+//    }
+    printf("Info: Not a valid Ordering. Use COLAMD.\n");
+  }
+  printf("NATURAL\n");
+  return ret;
+}
 
