@@ -17,6 +17,8 @@
  *
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <slu_ddefs.h>
 #include "../dreadMM.h"
@@ -24,6 +26,7 @@
 
 void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t *equil, trans_t *trans, char *fileA,
                         char *fileB, char *fileX, double* eps);
+colperm_t getSuperLUOrdering();
 
 int main(int argc, char *argv[])
 {
@@ -57,6 +60,7 @@ int main(int argc, char *argv[])
   char fileB[128] = "";
   char fileX[128] = "";
   double eps = 5e-8;
+  int permc_spec;
 
   /* Defaults */
   lwork = 0;
@@ -78,6 +82,7 @@ int main(int argc, char *argv[])
    options.PrintStat = YES;
    */
   set_default_options(&options);
+  options.ColPerm = getSuperLUOrdering();
 
   /* Can use command line input to modify the defaults. */
   parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB, fileX, &eps);
@@ -171,6 +176,16 @@ int main(int argc, char *argv[])
   /* Initialize the statistics variables. */
   StatInit(&stat);
 
+  /*
+   * Get column permutation vector perm_c[], according to permc_spec:
+   *   permc_spec = 0: natural ordering
+   *   permc_spec = 1: minimum degree ordering on structure of A'*A
+   *   permc_spec = 2: minimum degree ordering on structure of A'+A
+   *   permc_spec = 3: approximate minimum degree for unsymmetric matrices
+   */
+  permc_spec = 1;
+  get_perm_c(permc_spec, &A, perm_c);
+
   /* Solve the system and compute the condition number
    and error bounds using dgssvx.      */
   long long start = current_timestamp();
@@ -181,10 +196,6 @@ int main(int argc, char *argv[])
 
   if (info == 0 || info == n + 1)
   {
-    /* This is how you could access the solution matrix. */
-    // double *sol = (double*) ((DNformat*) X.Store)->nzval;
-    dinf_norm_error(nrhs, &X, xact);
-
     if (options.PivotGrowth == YES)
       printf("Recip. pivot growth = %e\n", rpg);
     if (options.ConditionNumber == YES)
@@ -205,9 +216,11 @@ int main(int argc, char *argv[])
 
     printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6, mem_usage.total_needed / 1e6);
     printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
-
     fflush(stdout);
 
+    /* This is how you could access the solution matrix. */
+    // double *sol = (double*) ((DNformat*) X.Store)->nzval;
+    dinf_norm_error(nrhs, &X, xact);
   }
   else if (info > 0 && lwork == -1)
     printf("** Estimated memory: %d bytes\n", info - n);
@@ -292,3 +305,65 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u, yes_no_t 
     }
   }
 }
+
+
+//------------------------------------------------------------------------------
+/**
+ * \brief Return column permutation specification for SuperLU (seq and mt).
+ *
+ * The user can specify the column permutation to use via environment variable
+ * ORDERING, e.g., ORDERING=NATURAL. Thus, we can test the  different options
+ * without recompiling ;-)
+ *
+ * Works for SuperLU and SuperLU_MT since the enums colperm_t of both library
+ * versions have identical definitions.
+ */
+inline colperm_t getSuperLUOrdering()
+{
+  colperm_t ret = COLAMD; // Default value.
+  printf("SuperLU Ordering: ");
+  const char* env_p = getenv("ORDERING");
+  // if(const char* env_p = getenv("ORDERING")) {
+  if (env_p != NULL) {
+    // std::string env(env_p);
+    //if (env.compare("NATURAL") == 0) {
+    if (strcmp(env_p, "NATURAL") == 0) {
+      printf("NATURAL\n");
+      return NATURAL;
+    }
+    if (strcmp(env_p, "MMD_ATA") == 0) {
+      printf("MMD_ATA\n");
+      return MMD_ATA;
+    }
+    if (strcmp(env_p,"MMD_AT_PLUS_A") == 0) {
+      printf("MMD_AT_PLUS_A\n");
+      return MMD_AT_PLUS_A;
+    }
+    if (strcmp(env_p,"COLAMD") == 0) {
+      printf("COLAMD\n");
+      return COLAMD;
+    }
+    if (strcmp(env_p,"METIS_AT_PLUS_A") == 0) {
+      printf("METIS_AT_PLUS_A\n");
+      return METIS_AT_PLUS_A;
+    }
+    if (strcmp(env_p,"PARMETIS") == 0) {
+      printf("PARMETIS\n");
+      return PARMETIS;
+    }
+    // ZOLTAN is only defined in SuperLU, not in SuperLU_MT. But since the user
+    // guide does not hold any information about ZOLTAN, we do not use it.
+//    if (strcmp(env_p,"ZOLTAN") == 0) {
+//      //printf( "ZOLTAN\n";
+//      m_warning(E_NULL, "Hqp_IpMatrix::getPermcSpec ZOLTAN is not enabled. "
+//                        "Set to COLAMD.");
+//    } else if (env.compare("MY_PERMC") == 0) {
+//      //printf( "MY_PERMC\n";
+//      ret = MY_PERMC;
+//    }
+    printf("Info: Not a valid Ordering. Use COLAMD.\n");
+  }
+  printf("COLAMD\n");
+  return ret;
+}
+
