@@ -176,6 +176,7 @@ int main(int argc, char *argv[])
   /* Initialize the statistics variables. */
   StatInit(&stat);
 
+  long long start = current_timestamp();
   /*
    * Get column permutation vector perm_c[], according to permc_spec:
    *   permc_spec = 0: natural ordering
@@ -188,7 +189,6 @@ int main(int argc, char *argv[])
 
   /* Solve the system and compute the condition number
    and error bounds using dgssvx.      */
-  long long start = current_timestamp();
   dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work, lwork, &B, &X, &rpg, &rcond, ferr, berr, &Glu,
          &mem_usage, &stat, &info);
   long long finish = current_timestamp();
