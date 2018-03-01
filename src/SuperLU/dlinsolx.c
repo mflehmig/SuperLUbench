@@ -24,13 +24,18 @@
 #include "../dreadMM.h"
 #include "../Util.h"
 
-
 void parse_command_line(int argc, char *argv[], int *lwork, double *u,
                         yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX);
+                        char *fileB, char *fileX, int *reps);
 colperm_t getSuperLUOrdering();
 
-
+/**
+ * \brief Solve a linear system Ax=b using dgssvx() from SuperLU.
+ *
+ * The matrix A, the right hand side vector b and the known solution are read
+ * in from Matrix Market files.
+ * The system Ax=b is solved several times (-reps NUM).
+ */
 int main(int argc, char *argv[])
 {
   char equed[1];
@@ -43,15 +48,16 @@ int main(int argc, char *argv[])
   SCformat *Lstore;
   GlobalLU_t Glu; /* facilitate multiple factorizations with
    SamePattern_SameRowPerm                  */
-  double *a;
+  double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
+                      values in A and thus a, we save the original values in a.*/
   int *asub, *xa;
   int *perm_r; /* row permutations from partial pivoting */
   int *perm_c; /* column permutation vector */
   int *etree;
   void *work;
   int info, lwork, nrhs, ldx;
-  int i, m, n, nnz;
-  double *rhsb, *rhsx, *xact;
+  int m, n, nnz;
+  double *rhsb_0, *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
   double u, rpg, rcond;
@@ -62,7 +68,7 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
-  int permc_spec;
+  int permc_spec, reps;
 
   /* Defaults */
   lwork = 0;
@@ -70,6 +76,7 @@ int main(int argc, char *argv[])
   equil = YES;
   u = 1.0;
   trans = NOTRANS;
+  reps = 1;
 
   /* Set the default input options:
    options.Fact = DOFACT;
@@ -89,7 +96,7 @@ int main(int argc, char *argv[])
 
   /* Can use command line input to modify the defaults. */
   parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
-                     fileX);
+                     fileX, &reps);
   options.Equil = equil;
   options.DiagPivotThresh = u;
   options.Trans = trans;
@@ -108,21 +115,27 @@ int main(int argc, char *argv[])
     }
   }
 
-  /* Read matrix A from a file in Harwell-Boeing format.*/
-  // dreadhb(fp, &m, &n, &nnz, &a, &asub, &xa);
+  /* Read matrix A from a file in Matrix Market format.*/
   fp = fopen(fileA, "r");
   if (fp == NULL)
   {
     perror("input error: could not open file\n");
     exit(-2);
   }
-  dreadMM(fp, &m, &n, &nnz, &a, &asub, &xa);
+  dreadMM(fp, &m, &n, &nnz, &a_0, &asub, &xa);
   fclose(fp);
 
+  // Create A
+  if (!(a = doubleMalloc(nnz)))
+    ABORT("Malloc fails for a[].");
+  memcpy(a, a_0, sizeof(double) * nnz);
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
   Astore = A.Store;
   printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
 
+  // Allocate memory for b, x and more.
+  if (!(rhsb_0 = doubleMalloc(m * nrhs)))
+    ABORT("Malloc fails for rhsb_0[].");
   if (!(rhsb = doubleMalloc(m * nrhs)))
     ABORT("Malloc fails for rhsb[].");
   if (!(rhsx = doubleMalloc(m * nrhs)))
@@ -142,7 +155,7 @@ int main(int argc, char *argv[])
       perror("input error: could not open file containing b\n");
       exit(-2);
     }
-    readVec(n, rhsb, fp);
+    readVec(n, rhsb_0, fp);
     fclose(fp);
 
     fp = fopen(fileX, "r");
@@ -168,68 +181,85 @@ int main(int argc, char *argv[])
     ABORT("Malloc fails for perm_r[].");
   if (!(perm_c = intMalloc(n)))
     ABORT("Malloc fails for perm_c[].");
-  if (!(R = (double *) SUPERLU_MALLOC(A.nrow * sizeof(double))))
+  if (!(R = (double *) SUPERLU_MALLOC(m * sizeof(double))))
     ABORT("SUPERLU_MALLOC fails for R[].");
-  if (!(C = (double *) SUPERLU_MALLOC(A.ncol * sizeof(double))))
+  if (!(C = (double *) SUPERLU_MALLOC(n * sizeof(double))))
     ABORT("SUPERLU_MALLOC fails for C[].");
   if (!(ferr = (double *) SUPERLU_MALLOC(nrhs * sizeof(double))))
     ABORT("SUPERLU_MALLOC fails for ferr[].");
   if (!(berr = (double *) SUPERLU_MALLOC(nrhs * sizeof(double))))
     ABORT("SUPERLU_MALLOC fails for berr[].");
 
-  /* Initialize the statistics variables. */
-  StatInit(&stat);
-
-  long long start = current_timestamp();
-  /* Get column permutation vector perm_c[], according to permc_spec. */
-  get_perm_c(permc_spec, &A, perm_c);
-
-  /* Solve the system and compute the condition number
-   and error bounds using dgssvx.      */
-  dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work, lwork,
-         &B, &X, &rpg, &rcond, ferr, berr, &Glu, &mem_usage, &stat, &info);
-  long long finish = current_timestamp();
-  printf("dgssvx(): info %d\n", info);
-
-  if (info == 0 || info == n + 1)
+  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
+  // we need to recreate them in each iteration (using the same memory locations).
+  int k;
+  long long start, finish;
+  for (k = 0; k < reps; ++k)
   {
-    if (options.PivotGrowth == YES)
-      printf("Recip. pivot growth = %e\n", rpg);
-    if (options.ConditionNumber == YES)
-      printf("Recip. condition number = %e\n", rcond);
-    if (options.IterRefine != NOREFINE)
+    printf("\n\n-- Iteration # %i\n", k);
+
+    /* Initialize the statistics variables. */
+    StatInit(&stat);
+
+    // Fresh copy of a (and thus A), because values in a may be overwritten by dgssvx().
+    memcpy(a, a_0, sizeof(double) * nnz);
+    // Fresh copy of rhs b, because values in rhsb may be overwritten by dgssvx().
+    memcpy(rhsb, rhsb_0, sizeof(double) * m);
+
+    start = current_timestamp();
+    /* Get column permutation vector perm_c[], according to permc_spec. */
+    get_perm_c(permc_spec, &A, perm_c);
+
+    // Solve the system and compute the condition number
+    // and error bounds using dgssvx.
+    dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work,
+           lwork, &B, &X, &rpg, &rcond, ferr, berr, &Glu, &mem_usage, &stat,
+           &info);
+    finish = current_timestamp();
+    printf("dgssvx(): info %d\n", info);
+    printf("Time for dgssvx() [1e-6 s]: %lli\n", (finish - start));
+
+    if (info == 0 || info == n + 1)
     {
-      printf("Iterative Refinement:\n");
-      printf("%8s%8s%16s%16s\n", "rhs", "Steps", "FERR", "BERR");
-      for (i = 0; i < nrhs; ++i)
-        printf("%8d%8d%16e%16e\n", i + 1, stat.RefineSteps, ferr[i], berr[i]);
+      if (options.PivotGrowth == YES)
+        printf("Recip. pivot growth = %e\n", rpg);
+      if (options.ConditionNumber == YES)
+        printf("Recip. condition number = %e\n", rcond);
+      if (options.IterRefine != NOREFINE)
+      {
+        printf("Iterative Refinement:\n");
+        printf("%8s%8s%16s%16s\n", "rhs", "Steps", "FERR", "BERR");
+        int i;
+        for (i = 0; i < nrhs; ++i)
+          printf("%8d%8d%16e%16e\n", i + 1, stat.RefineSteps, ferr[i], berr[i]);
+      }
+      Lstore = (SCformat *) L.Store;
+      Ustore = (NCformat *) U.Store;
+      printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
+      printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
+      printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
+      printf("FILL ratio = %.1f\n",
+             (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
+
+      printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
+             mem_usage.total_needed / 1e6);
+      fflush(stdout);
+
+      /* This is how you could access the solution matrix. */
+      // double *sol = (double*) ((DNformat*) X.Store)->nzval;
+      dinf_norm_error(nrhs, &X, xact);
     }
-    Lstore = (SCformat *) L.Store;
-    Ustore = (NCformat *) U.Store;
-    printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
-    printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
-    printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
-    printf("FILL ratio = %.1f\n",
-           (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
+    else if (info > 0 && lwork == -1)
+      printf("** Estimated memory: %d bytes\n", info - n);
+    else
+      printf("ERROR: dgssvx() returns info %d\n", info);
 
-    printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
-           mem_usage.total_needed / 1e6);
-    printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
-    fflush(stdout);
+    if (options.PrintStat)
+      StatPrint(&stat);
 
-    /* This is how you could access the solution matrix. */
-    // double *sol = (double*) ((DNformat*) X.Store)->nzval;
-    dinf_norm_error(nrhs, &X, xact);
-  }
-  else if (info > 0 && lwork == -1)
-    printf("** Estimated memory: %d bytes\n", info - n);
-  else
-    printf("ERROR: dgssvx() returns info %d\n", info);
+  } // reps
 
-  if (options.PrintStat)
-    StatPrint(&stat);
   StatFree(&stat);
-
   SUPERLU_FREE(rhsb);
   SUPERLU_FREE(rhsx);
   SUPERLU_FREE(xact);
@@ -258,12 +288,12 @@ int main(int argc, char *argv[])
  */
 void parse_command_line(int argc, char *argv[], int *lwork, double *u,
                         yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX)
+                        char *fileB, char *fileX, int *reps)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:")) != EOF)
+  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:R:")) != EOF)
   {
     switch (c)
     {
@@ -295,6 +325,9 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
         break;
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
+        break;
+      case 'R':  // repetitions
+        *reps = atoi(optarg);
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);

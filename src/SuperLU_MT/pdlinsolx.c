@@ -24,11 +24,10 @@
 
 void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
                         int_t *w, int_t *relax, double *u, fact_t *fact,
-                        trans_t *trans, yes_no_t *refact, equed_t *equed,
-                        char *fileA, char *fileB, char *fileX);
+                        trans_t *trans, equed_t *equed, char *fileA,
+                        char *fileB, char *fileX, int *reps);
 colperm_t getSuperLUOrdering();
 int getNumThreads();
-
 
 int main(int argc, char *argv[])
 {
@@ -42,7 +41,8 @@ int main(int argc, char *argv[])
   trans_t trans;
   yes_no_t refact, usepr;
   equed_t equed;
-  double *a;
+  double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
+   values in A and thus a, we save the original values in a.*/
   int_t *asub, *xa;
   int_t *perm_c; /* column permutation vector */
   int_t *perm_r; /* row permutations from partial pivoting */
@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
   superlumt_options_t superlumt_options;
   int_t info, lwork, nrhs, ldx, panel_size, relax;
   int_t m, n, nnz, i;
-  double *rhsb, *rhsx, *xact;
+  double *rhsb_0, *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
   double u, drop_tol, rpg, rcond;
@@ -59,8 +59,10 @@ int main(int argc, char *argv[])
   char fileB[128] = "";
   char fileX[128] = "";
   colperm_t permc_spec;
+  int reps;
 
   /* Default parameters to control factorization. */
+  reps = 1;
   nprocs = getNumThreads();
   fact = EQUILIBRATE;
   trans = NOTRANS;
@@ -78,7 +80,7 @@ int main(int argc, char *argv[])
 
   /* Command line options to modify default behaviour. */
   parse_command_line(argc, argv, &nprocs, &lwork, &panel_size, &relax, &u,
-                     &fact, &trans, &refact, &equed, fileA, fileB, fileX);
+                     &fact, &trans, &equed, fileA, fileB, fileX, &reps);
 
   if (lwork > 0)
   {
@@ -96,15 +98,20 @@ int main(int argc, char *argv[])
     perror("input error: could not open file\n");
     exit(-2);
   }
-  dreadMM(fp, &m, &n, &nnz, &a, &asub, &xa);
+  dreadMM(fp, &m, &n, &nnz, &a_0, &asub, &xa);
   fclose(fp);
-//#endif
 
+  // Create A
+  if (!(a = doubleMalloc(nnz)))
+    SUPERLU_ABORT("Malloc fails for a[].");
+  memcpy(a, a_0, sizeof(double) * nnz);
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
   Astore = A.Store;
   printf("Dimension " IFMT "x" IFMT "; # nonzeros " IFMT "\n", A.nrow, A.ncol,
          Astore->nnz);
 
+  if (!(rhsb_0 = doubleMalloc(m * nrhs)))
+    SUPERLU_ABORT("Malloc fails for rhsb_0[].");
   if (!(rhsb = doubleMalloc(m * nrhs)))
     SUPERLU_ABORT("Malloc fails for rhsb[].");
   if (!(rhsx = doubleMalloc(m * nrhs)))
@@ -125,7 +132,7 @@ int main(int argc, char *argv[])
       perror("input error: could not open file containing b\n");
       exit(-2);
     }
-    readVec(n, rhsb, fp);
+    readVec(n, rhsb_0, fp);
     fclose(fp);
 
     fp = fopen(fileX, "r");
@@ -158,19 +165,10 @@ int main(int argc, char *argv[])
   if (!(berr = (double *) SUPERLU_MALLOC(nrhs * sizeof(double))))
     SUPERLU_ABORT("SUPERLU_MALLOC fails for berr[].");
 
-  /*
-   * Get column permutation vector perm_c[], according to permc_spec:
-   *   permc_spec = 0: natural ordering
-   *   permc_spec = 1: minimum degree ordering on structure of A'*A
-   *   permc_spec = 2: minimum degree ordering on structure of A'+A
-   *   permc_spec = 3: approximate minimum degree for unsymmetric matrices
-   */
-  get_perm_c(permc_spec, &A, perm_c);
-
   superlumt_options.nprocs = nprocs;
   superlumt_options.fact = fact;
   superlumt_options.trans = trans;
-  superlumt_options.refact = refact;
+  superlumt_options.refact = NO;  //refact;
   superlumt_options.panel_size = panel_size;
   superlumt_options.relax = relax;
   superlumt_options.usepr = usepr;
@@ -189,47 +187,63 @@ int main(int argc, char *argv[])
   if (!(superlumt_options.part_super_h = intMalloc(n)))
     SUPERLU_ABORT("Malloc fails for colcnt_h[].");
 
-  /*
-   * Solve the system and compute the condition number
-   * and error bounds using pdgssvx.
-   */
-  long long start = current_timestamp();
-  pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L, &U,
-          &B, &X, &rpg, &rcond, ferr, berr, &superlu_memusage, &info);
-  long long finish = current_timestamp();
-  printf("pdgssvx(): info " IFMT "\n", info);
-
-  if (info == 0 || info == n + 1)
+  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
+  // we need to recreate them in each iteration (using the same memory locations).
+  int k;
+  long long start, finish;
+  for (k = 0; k < reps; ++k)
   {
-    printf("Recip. pivot growth = %e\n", rpg);
-    printf("Recip. condition number = %e\n", rcond);
-    printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
-    for (i = 0; i < nrhs; ++i)
-      printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
+    printf("\n\n-- Iteration # %i\n", k);
 
-    Lstore = (SCPformat *) L.Store;
-    Ustore = (NCPformat *) U.Store;
-    printf("No of nonzeros in factor L = " IFMT "\n", Lstore->nnz);
-    printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
-    printf("No of nonzeros in L+U = " IFMT "\n", Lstore->nnz + Ustore->nnz - n);
-    printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
-           superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
-           superlu_memusage.expansions);
-    printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
+    // Fresh copy of a (and thus A), because values in a may be overwritten by dgssvx().
+    memcpy(a, a_0, sizeof(double) * nnz);
+    // Fresh copy of rhs b, because values in rhsb may be overwritten by dgssvx().
+    memcpy(rhsb, rhsb_0, sizeof(double) * m);
+
+    // Solve the system and compute the condition number
+    // and error bounds using pdgssvx.
+    start = current_timestamp();
+    get_perm_c(permc_spec, &A, perm_c);
+
+    pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L,
+            &U, &B, &X, &rpg, &rcond, ferr, berr, &superlu_memusage, &info);
+    finish = current_timestamp();
+    printf("pdgssvx(): info " IFMT "\n", info);
     printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
-    fflush(stdout);
 
-    /* This is how you could access the solution matrix. */
-//    double *sol = (double*) ((DNformat*) X.Store)->nzval;
-//    int ret = compareSolution(sol, m, xact, eps);
-//    if (!ret)
-//      printf("Computed and provided solutions match within %g eps.\n", eps);
-//    else
-//      printf("Computed and provided solutions DO NOT match within %g eps.\n", eps);
-    dinf_norm_error(nrhs, &X, xact);
-  }
-  else if (info > 0 && lwork == -1)
-    printf("** Estimated memory: " IFMT " bytes\n", info - n);
+    if (info == 0 || info == n + 1)
+    {
+      printf("Recip. pivot growth = %e\n", rpg);
+      printf("Recip. condition number = %e\n", rcond);
+      printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
+      for (i = 0; i < nrhs; ++i)
+        printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
+
+      Lstore = (SCPformat *) L.Store;
+      Ustore = (NCPformat *) U.Store;
+      printf("No of nonzeros in factor L = " IFMT "\n", Lstore->nnz);
+      printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
+      printf("No of nonzeros in L+U = " IFMT "\n",
+             Lstore->nnz + Ustore->nnz - n);
+      printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
+             superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
+             superlu_memusage.expansions);
+      printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
+      fflush(stdout);
+
+      /* This is how you could access the solution matrix. */
+      //    double *sol = (double*) ((DNformat*) X.Store)->nzval;
+      //    int ret = compareSolution(sol, m, xact, eps);
+      //    if (!ret)
+      //      printf("Computed and provided solutions match within %g eps.\n", eps);
+      //    else
+      //      printf("Computed and provided solutions DO NOT match within %g eps.\n", eps);
+      dinf_norm_error(nrhs, &X, xact);
+    }
+    else if (info > 0 && lwork == -1)
+      printf("** Estimated memory: " IFMT " bytes\n", info - n);
+
+  }  // reps
 
   SUPERLU_FREE(rhsb);
   SUPERLU_FREE(rhsx);
@@ -260,13 +274,13 @@ int main(int argc, char *argv[])
  */
 void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
                         int_t *w, int_t *relax, double *u, fact_t *fact,
-                        trans_t *trans, yes_no_t *refact, equed_t *equed,
-                        char *fileA, char *fileB, char *fileX)
+                        trans_t *trans, equed_t *equed, char *fileA,
+                        char *fileB, char *fileX, int *reps)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:r:e:A:b:x:")) != EOF)
+  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:e:A:b:x:R:")) != EOF)
   {
     switch (c)
     {
@@ -279,7 +293,7 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
         printf("\t-u <int> - pivoting threshold\n");
         printf("\t-f <FACTORED/DOFACT/EQUILIBRATE> - factor control\n");
         printf("\t-t <NOTRANS/TRANS/CONJ> - transpose or not\n");
-        printf("\t-r <NO/YES> - refactor or not\n");
+        //printf("\t-r <NO/YES> - refactor or not\n");
         printf("\t-e <NOEQUIL/ROW/COL/BOTH> - equilibrate or not\n");
         exit(1);
         break;
@@ -304,9 +318,9 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
       case 't':
         *trans = (trans_t) atoi(optarg);
         break;
-      case 'r':
-        *refact = (yes_no_t) atoi(optarg);
-        break;
+//      case 'r':
+//        *refact = (yes_no_t) atoi(optarg);
+//        break;
       case 'e':
         *equed = (equed_t) atoi(optarg);
         break;
@@ -318,6 +332,9 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
         break;
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
+        break;
+      case 'R':  // repetitions
+        *reps = atoi(optarg);
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);

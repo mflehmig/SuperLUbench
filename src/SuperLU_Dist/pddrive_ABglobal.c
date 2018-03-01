@@ -25,7 +25,7 @@
 #include "../dreadMM.h"
 
 void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
-                        char *fileA, char *fileB, char *fileX);
+                        char *fileA, char *fileB, char *fileX, int *reps);
 colperm_t getSuperLUOrdering();
 
 /*! \brief
@@ -59,8 +59,8 @@ int main(int argc, char *argv[])
   LUstruct_t LUstruct;
   gridinfo_t grid;
   double *berr;
-  double *a, *b, *xtrue;
-  int_t *asub, *xa;
+  double *a_0, *a, *b_0, *b, *xact;
+  int_t *asub_0, *asub, *xa;
   int_t m, n, nnz;
   int_t nprow, npcol;
   int iam, info, ldb, ldx, nrhs;
@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128];
   char fileX[128];
+  int reps = 1;
 
   nprow = 1; /* Default process rows.      */
   npcol = 1; /* Default process columns.   */
@@ -80,7 +81,7 @@ int main(int argc, char *argv[])
   MPI_Init(&argc, &argv);
 
   /* Parse command line argv[]. */
-  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX);
+  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX, &reps);
 
   /* ------------------------------------------------------------
    INITIALIZE THE SUPERLU PROCESS GRID.
@@ -98,10 +99,9 @@ int main(int argc, char *argv[])
    ------------------------------------------------------------*/
   if (!iam)
   {
-    /* Read the matrix stored on disk in Harwell-Boeing format. */
-    //MS dreadhb_dist(iam, fp, &m, &n, &nnz, &a, &asub, &xa);
+    /* Read the matrix stored on disk in Matrix-Market format. */
     fp = fopen(fileA, "r");
-    dreadMM_dist(fp, &m, &n, &nnz, &a, &asub, &xa);
+    dreadMM_dist(fp, &m, &n, &nnz, &a_0, &asub_0, &xa);
     fclose(fp);
 
     printf("Input matrix file: %s\n", fileA);
@@ -112,39 +112,85 @@ int main(int argc, char *argv[])
     MPI_Bcast(&m, 1, mpi_int_t, 0, grid.comm);
     MPI_Bcast(&n, 1, mpi_int_t, 0, grid.comm);
     MPI_Bcast(&nnz, 1, mpi_int_t, 0, grid.comm);
-    MPI_Bcast(a, nnz, MPI_DOUBLE, 0, grid.comm);
-    MPI_Bcast(asub, nnz, mpi_int_t, 0, grid.comm);
+    MPI_Bcast(a_0, nnz, MPI_DOUBLE, 0, grid.comm);
+    MPI_Bcast(asub_0, nnz, mpi_int_t, 0, grid.comm);
     MPI_Bcast(xa, n + 1, mpi_int_t, 0, grid.comm);
   }
   else
   {
-    /* Receive matrix A from PE 0. */
+    // Receive matrix A from PE 0.
     MPI_Bcast(&m, 1, mpi_int_t, 0, grid.comm);
     MPI_Bcast(&n, 1, mpi_int_t, 0, grid.comm);
     MPI_Bcast(&nnz, 1, mpi_int_t, 0, grid.comm);
 
-    /* Allocate storage for compressed column representation. */
-    dallocateA_dist(n, nnz, &a, &asub, &xa);
+    // Allocate storage for compressed column representation.
+    dallocateA_dist(n, nnz, &a_0, &asub_0, &xa);
 
-    MPI_Bcast(a, nnz, MPI_DOUBLE, 0, grid.comm);
-    MPI_Bcast(asub, nnz, mpi_int_t, 0, grid.comm);
+    MPI_Bcast(a_0, nnz, MPI_DOUBLE, 0, grid.comm);
+    MPI_Bcast(asub_0, nnz, mpi_int_t, 0, grid.comm);
     MPI_Bcast(xa, n + 1, mpi_int_t, 0, grid.comm);
   }
 
-  /* Create compressed column matrix for A. */
+  // Allocate memory for a. Memory for a_O is already allocated.
+  if (!(a = doubleMalloc_dist(nnz)))
+    ABORT("Malloc fails for a[]");
+  memcpy(a, a_0, sizeof(double) * nnz);
+  if (!(asub = intMalloc_dist(nnz)))
+    ABORT("Malloc fails for asub[]");
+  memcpy(asub, asub_0, sizeof(int) * nnz);
+
+  // Create compressed column matrix for A.
   dCreate_CompCol_Matrix_dist(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D,
                               SLU_GE);
 
-  /* Generate the exact solution and compute the right-hand side. */
-  if (!(b = doubleMalloc_dist(m * nrhs)))
+  // Allocate memory for b and x.
+  if (!(b_0 = doubleMalloc_dist(m)))
+    ABORT("Malloc fails for b_0[]");
+  if (!(b = doubleMalloc_dist(m)))
     ABORT("Malloc fails for b[]");
-  if (!(xtrue = doubleMalloc_dist(n * nrhs)))
-    ABORT("Malloc fails for xtrue[]");
-  *trans = 'N';
-  ldx = n;
-  ldb = m;
-  dGenXtrue_dist(n, nrhs, xtrue, ldx);
-  dFillRHS_dist(trans, nrhs, xtrue, ldx, &A, b, ldb);
+  if (!(xact = doubleMalloc_dist(n)))
+    ABORT("Malloc fails for xact[]");
+
+  // Read matrix b and x from a file in Matrix Market format.
+  if (strcmp(fileB, "") != 0 && strcmp(fileX, "") != 0)
+  {
+    // Only masters reads the files. Than broadcasts to the other PEs.
+    if (!iam)
+    {
+      printf("Read in b and x from provided files.\n");
+      fp = fopen(fileB, "r");
+      if (fp == NULL)
+      {
+        perror("input error: could not open file containing b\n");
+        exit(-2);
+      }
+      readVec(n, b_0, fp);
+      fclose(fp);
+
+      fp = fopen(fileX, "r");
+      if (fp == NULL)
+      {
+        perror("input error: could not open file containing x\n");
+        exit(-2);
+      }
+      readVec(n, xact, fp);
+      fclose(fp);
+
+      MPI_Bcast(b_0, m, MPI_DOUBLE, 0, grid.comm);
+      MPI_Bcast(xact, m, MPI_DOUBLE, 0, grid.comm);
+    }
+    else
+    {
+      MPI_Bcast(b_0, m, MPI_DOUBLE, 0, grid.comm);
+      MPI_Bcast(xact, m, MPI_DOUBLE, 0, grid.comm);
+    }
+  } // Read b and x
+
+//  *trans = 'N';
+//  ldx = n;
+//  ldb = m;
+//  dGenXtrue_dist(n, nrhs, xact, n);
+//  dFillRHS_dist(trans, nrhs, xact, n, &A, b, m);
 
   if (!(berr = doubleMalloc_dist(nrhs)))
     ABORT("Malloc fails for berr[].");
@@ -168,7 +214,6 @@ int main(int argc, char *argv[])
   set_default_options_dist(&options);
   options.ColPerm = getSuperLUOrdering();
 
-
   if (!iam)
   {
     print_sp_ienv_dist(&options);
@@ -178,38 +223,55 @@ int main(int argc, char *argv[])
   /* Initialize ScalePermstruct and LUstruct. */
   ScalePermstructInit(m, n, &ScalePermstruct);
   LUstructInit(n, &LUstruct);
-
-  /* Initialize the statistics variables. */
-  PStatInit(&stat);
-
-  long long start = current_timestamp();
-  /* Call the linear equation solver. */
-  pdgssvx_ABglobal(&options, &A, &ScalePermstruct, b, ldb, nrhs, &grid,
-                   &LUstruct, berr, &stat, &info);
-  long long finish = current_timestamp();
-  /* Compare value of info with A->ncol (=m). */
-  if (!iam)
+  // Solve the system 'reps' times.  Since A, b and x are overwritten by pdgssvx_ABglobal(),
+  // we need to recreate them in each iteration (using the same memory locations).
+  int k;
+  long long start, finish;
+  for (k = 0; k < reps; ++k)
   {
-    if (info == 0)
+    printf("\n\n-- Iteration # %i\n", k);
+
+    // Fresh copy of a (and thus A), because values in a may be overwritten by pdgssvx_ABglobal().
+    memcpy(a, a_0, sizeof(double) * nnz);
+    // Fresh copy of asub (and thus A), because values in asub may be overwritten by pdgssvx_ABglobal().
+    memcpy(asub, asub_0, sizeof(int) * nnz);
+    // Fresh copy of rhs b, because values in rhsb may be overwritten by pdgssvx_ABglobal().
+    memcpy(b, b_0, sizeof(double) * m);
+
+    /* Initialize the statistics variables. */
+    PStatInit(&stat);
+
+    start = current_timestamp();
+    /* Call the linear equation solver. */
+    pdgssvx_ABglobal(&options, &A, &ScalePermstruct, b, m, 1, &grid,
+                     &LUstruct, berr, &stat, &info);
+    finish = current_timestamp();
+
+    /* Compare value of info with A->ncol (=m). */
+    if (!iam)
     {
-      printf("SUCCESS: pdgssvx() returns info %d which means FINE\n", info);
-      printf("Time for pdgssvx_ABglobal() [1e-6 s]: %lli\n", (finish - start));
+      if (info == 0)
+      {
+        printf("SUCCESS: pdgssvx_ABglobal() returns info %d which means FINE\n", info);
+        printf("Time for pdgssvx_ABglobal() [1e-6 s]: %lli\n", (finish - start));
+      }
+      if (info > 0 && info <= m)
+        printf(
+            "FAILED: pdgssvx() returns info %d which means U(%d,%d) is exactly zero\n",
+            info, info, info);
+      if (info > 0 && info > m)
+        printf(
+            "FAILED: pdgssvx() returns info %d which means memory allocation failed\n",
+            info);
     }
-    if (info > 0 && info <= m)
-      printf(
-          "FAILED: pdgssvx() returns info %d which means U(%d,%d) is exactly zero\n",
-          info, info, info);
-    if (info > 0 && info > m)
-      printf(
-          "FAILED: pdgssvx() returns info %d which means memory allocation failed\n",
-          info);
-  }
 
-  /* Check the accuracy of the solution (only if pdgssvx_ABglobal succeeded). */
-  if (!iam && info == 0)
-    dinf_norm_error_dist(n, nrhs, b, ldb, xtrue, ldx, &grid);
+    /* Check the accuracy of the solution (only if pdgssvx_ABglobal succeeded). */
+    if (!iam && info == 0)
+      dinf_norm_error_dist(n, nrhs, b, m, xact, n, &grid);
 
-  PStatPrint(&options, &stat, &grid); /* Print the statistics. */
+    PStatPrint(&options, &stat, &grid); /* Print the statistics. */
+
+  } // reps
 
   /* ------------------------------------------------------------
    DEALLOCATE STORAGE.
@@ -220,7 +282,7 @@ int main(int argc, char *argv[])
   ScalePermstructFree(&ScalePermstruct);
   LUstructFree(&LUstruct);
   SUPERLU_FREE(b);
-  SUPERLU_FREE(xtrue);
+  SUPERLU_FREE(xact);
   SUPERLU_FREE(berr);
 
   /* ------------------------------------------------------------
@@ -238,12 +300,12 @@ int main(int argc, char *argv[])
  * Parse command line options.
  */
 void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
-                        char *fileA, char *fileB, char *fileX)
+                        char *fileA, char *fileB, char *fileX, int *reps)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hr:c:A:b:x:")) != EOF)
+  while ((c = getopt(argc, argv, "hr:c:A:b:x:R:")) != EOF)
   {
     switch (c)
     {
@@ -267,6 +329,9 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
         break;
       case 'x':  // file with matrix x
         memcpy(fileX, optarg, strlen(optarg) + 1);
+        break;
+      case 'R':  // repetitions
+        *reps = atoi(optarg);
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);
