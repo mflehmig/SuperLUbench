@@ -1,0 +1,109 @@
+= Readme for SuperLUbench
+Martin Schroschk <martin.schroschk at tu-dresden dot de>
+:doctype: book
+:toc: right
+:reproducible:
+//:source-highlighter: coderay
+:source-highlighter: rouge
+:listing-caption: Listing
+// Uncomment next line to set page size (default is A4)
+//:pdf-page-size: Letter
+
+
+== SuperLUbench
+Benchmark solving large sparse linear systems of form _Ax=b_ using the libraries *SuperLU*, *SuperLU_MT* and *SuperLU_DIST* <<slu_hp>>.
+
+SuperLU is used in many applications around the software world. The search on comparisons or benchmarking with respect to the three flavors of SuperLU gave nothing. Thus, I built this comparison up on the examples that are shipped with SuperLU. This code might help to decide whether to use SuperLU, SuperLU_MT or SuperLU_Dist to solve a given linear system. Important metrics for this decision are memory footprint and time to solution.
+
+
+=== On SuperLU
+For those readers which are not familiar with SuperLU, here is a quote on SuperLU from its author Xiaoye Sherry Li:
+
+"_SuperLU is a general purpose library for the direct solution of large, sparse, nonsymmetric systems of linear equations. The library is written in C and is callable from either C or Fortran program. It uses MPI, OpenMP and CUDA to support various forms of parallelism. It supports both real and complex datatypes, both single and double precision, and 64-bit integer indexing. The library routines performs an LU decomposition with partial pivoting and triangular system solves through forward and back substitution. The LU factorization routines can handle non-square matrices but the triangular solves are performed only for square matrices. The matrix columns may be preordered (before factorization) either through library or user supplied routines.[...]_" <<slu_hp>>
+
+More detailed information can be found on the website of link:++http://crd-legacy.lbl.gov/~xiaoye/SuperLU++[SuperLU] and within the link:++http://crd-legacy.lbl.gov/~xiaoye/SuperLU/ug.pdf++[Users' Guide].
+
+
+=== Configure and Make
+Building these three benchmarks should be quite easy:
+
+1. Step: Adopt the settings in `config.inc` to the specific needs and system.
+2. Step: Call `make all` from top level directory to compile all three benchmarks in one rush.
+
+Moreover, there is a Makefile for each benchmark in the corresponding directory (`src/SuperLU*`). All Makefiles depend on the values defined in `config.inc`.
+
+
+=== Usage
+Once build, the benchmarks can be feeded with the provided linear system in the `example` directory.
+
+_src/SuperLU/_:
+----
+./dlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
+----
+
+_src/SuperLU_MT/_:
+----
+OMP_NUM_THREADS=2 ./pdlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
+----
+
+_src/SuperLU_DIST/_:
+----
+mpirun -np 2 ./pddrive_ABglobal -r 2 -c 1 -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
+----
+
+
+==== Options
+All three benchmarks share these options:
+[source,bash]
+----
+-A  <FILE>     Matrix A
+-b  <FILE>     Right hand side vector b
+-x  <FILE>     Known solution vector x to verify the computed result
+-R  <int>      Number of repetitions to solve Ax=b
+----
+
+SuperLU_DIST has some additional options:
+----
+-r  <int>      Process rows
+-c  <int>      Process columns
+----
+See section <<Control Parallelism>> for more information on this options.
+
+
+==== Input Formats
+Although there are multiple popular matrix formats (e.g., Harwell-Boeing, Triplet), only the Matrix Market format is supported at the moment <<mtx>>.
+
+
+==== Control Parallelism
+SuperLU_MT can be build with support of PThreads or OpenMP. If build with OpenMP, than the number of threads used by SuperLU_MT is controlled via the environment variabel `OMP_NUM_THREADS`.
+*Todo*: How to control number of PThreads?
+
+Since SuperLU_DIST uses MPI, the benchmark `pddrive_ABglobal` needs to be invoked with `mpirun -np NP`, where NP is the number of MPI processes to use. Furthermore, the matrix A is decomposed in a block fashion way. *Todo* Explain this and what is -r and -c.
+
+
+=== Benchmarks
+All three benchmarks are build up on examples shipped with SuperLU, SuperLU_MT and SuperLU_DIST, respectively. 
+
+
+
+
+=== Additional Information for Developers
+There are some thoughts I want to dump for future references.
+
+The used functions `dgssvx()`, `pdgssvx()` and `pdgssvx_ABglobal()` within SuperLUbench may overwrite the structures holding A and b. Thus, the values are stored in additional arrays and restored before iteratively calling the solve functions.
+
+In SuperLU and SuperLU_MT it seems to be sufficient to recreate the arrays `double *a` and `double *rhsb`.
+
+Additional to this two arrays, the array `asub` (holding the row indices) needs to be recreated in SuperLU_DIST since `pdgssvx_ABglobal()` may overwrite it. I'm not sure, if this also holds for the methods `dgssvx()` and `pdgssvx()`, respectively.
+
+
+
+
+
+[bibliography]
+== References
+
+- [[[slu_hp, 1]]] Xiaoye Sherry Li, Website of SuperLU, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/[SuperLU]
+- [[[mtx, 2]]] US National Institute of Standards and Technology, Matrix Market, https://math.nist.gov/MatrixMarket/
+
+
