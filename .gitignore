@@ -1,0 +1,16 @@
+# Compiled Object files
+*.o
+
+# Executables
+*.out
+dlinsolx
+pdlinsolx
+pddrive_ABglobal
+
+# DDT Sessions
+*.session
+
+# IDE Stuff
+*.project
+*.cproject
+*.settings
