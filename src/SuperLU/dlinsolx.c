@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
   GlobalLU_t Glu; /* facilitate multiple factorizations with
    SamePattern_SameRowPerm                  */
   double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
-                      values in A and thus a, we save the original values in a.*/
+   values in A and thus a, we save the original values in a.*/
   int *asub, *xa;
   int *perm_r; /* row permutations from partial pivoting */
   int *perm_c; /* column permutation vector */
@@ -257,7 +257,7 @@ int main(int argc, char *argv[])
     if (options.PrintStat)
       StatPrint(&stat);
 
-  } // reps
+  }  // reps
 
   StatFree(&stat);
   SUPERLU_FREE(rhsb);
@@ -303,6 +303,12 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
         printf("\t-u <int> - pivoting threshold\n");
         printf("\t-e <0 or 1> - equilibrate or not\n");
         printf("\t-t <0 or 1> - solve transposed system or not\n");
+        printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
+        printf(
+            "\t-b <FILE> - File holding right hand side vector b in Matrix Market format\n");
+        printf(
+            "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
+        printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
         exit(1);
         break;
       case 'l':

@@ -313,6 +313,12 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
         printf("Options:\n");
         printf("\t-r <int>: process rows    (default %4d)\n", *nprow);
         printf("\t-c <int>: process columns (default %4d)\n", *npcol);
+        printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
+        printf(
+            "\t-b <FILE> - File holding right hand side vector b in Matrix Market format\n");
+        printf(
+            "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
+        printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
         exit(0);
         break;
       case 'r':
