@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
   char fileB[128] = "";
   char fileX[128] = "";
   int permc_spec, reps;
+  char tmpfile[] = ".infnorm.txt";
 
   /* Defaults */
   lwork = 0;
@@ -131,9 +132,9 @@ int main(int argc, char *argv[])
   memcpy(a, a_0, sizeof(double) * nnz);
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
   Astore = A.Store;
-  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
+//  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
 
-  // Allocate memory for b, x and more.
+// Allocate memory for b, x and more.
   if (!(rhsb_0 = doubleMalloc(m * nrhs)))
     ABORT("Malloc fails for rhsb_0[].");
   if (!(rhsb = doubleMalloc(m * nrhs)))
@@ -190,14 +191,22 @@ int main(int argc, char *argv[])
   if (!(berr = (double *) SUPERLU_MALLOC(nrhs * sizeof(double))))
     ABORT("SUPERLU_MALLOC fails for berr[].");
 
-  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
-  // we need to recreate them in each iteration (using the same memory locations).
+  printf("== dlinsolx\n");
+  printf("A: %s\n", fileA);
+  printf("b: %s\n", fileB);
+  printf("x: %s\n", fileX);
+  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
+
+  printf(
+      "\n#Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB], ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
   int k;
   long long start, finish;
+  double err;
+  char dummy[128];
+  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
+  // we need to recreate them in each iteration (using the same memory locations).
   for (k = 0; k < reps; ++k)
   {
-    printf("\n\n-- Iteration # %i\n", k);
-
     /* Initialize the statistics variables. */
     StatInit(&stat);
 
@@ -216,48 +225,78 @@ int main(int argc, char *argv[])
            lwork, &B, &X, &rpg, &rcond, ferr, berr, &Glu, &mem_usage, &stat,
            &info);
     finish = current_timestamp();
-    printf("dgssvx(): info %d\n", info);
-    printf("Time for dgssvx() [1e-6 s]: %lli\n", (finish - start));
+
+    // Hack: We want inf norm. But SuperLU method dinf_norm_error() does not
+    //       store the norm value into a variable. Instead it calculates the
+    //       norm value and prints it to stderr. So, we redirect the stderr
+    //       to file and than read the value from file.
+    int stdout_fd = dup(STDOUT_FILENO);
+    freopen(tmpfile, "w", stdout);
+    dinf_norm_error(nrhs, &X, xact);
+    fclose(stdout);
+    dup2(stdout_fd, STDOUT_FILENO);
+    stdout = fdopen(STDOUT_FILENO, "w");
+    close(stdout_fd);
+    // tmpfile contains "||X - Xtrue||/||X|| = 6.454921e-10", so we read strings
+    // until we get "=". Than, we read a double - the norm value!
+    fp = fopen(tmpfile, "r");
+    do
+    {
+      fscanf(fp, "%s", dummy);
+    }
+    while (strcmp(dummy, "="));
+    fscanf(fp, "%le", &err);
+
+    fclose(fp);
+    // End Hack.
 
     if (info == 0 || info == n + 1)
     {
-      if (options.PivotGrowth == YES)
-        printf("Recip. pivot growth = %e\n", rpg);
-      if (options.ConditionNumber == YES)
-        printf("Recip. condition number = %e\n", rcond);
-      if (options.IterRefine != NOREFINE)
-      {
-        printf("Iterative Refinement:\n");
-        printf("%8s%8s%16s%16s\n", "rhs", "Steps", "FERR", "BERR");
-        int i;
-        for (i = 0; i < nrhs; ++i)
-          printf("%8d%8d%16e%16e\n", i + 1, stat.RefineSteps, ferr[i], berr[i]);
-      }
+//      if (options.PivotGrowth == YES) {
+//        printf("Recip. pivot growth = %e\n", rpg);
+//      }
+//      if (options.ConditionNumber == YES) {
+//        printf("Recip. condition number = %e\n", rcond);
+//      }
+//      if (options.IterRefine != NOREFINE)
+//      {
+//        printf("Iterative Refinement:\n");
+//        printf("%8s%8s%16s%16s\n", "rhs", "Steps", "FERR", "BERR");
+//        int i;
+//        for (i = 0; i < nrhs; ++i)
+//          printf("%8d%8d%16e%16e\n", i + 1, stat.RefineSteps, ferr[i], berr[i]);
+//      }
       Lstore = (SCformat *) L.Store;
       Ustore = (NCformat *) U.Store;
-      printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
-      printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
-      printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
-      printf("FILL ratio = %.1f\n",
-             (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
+//      printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
+//      printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
+//      printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
+//      printf("FILL ratio = %.1f\n",
+//             (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
 
-      printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
-             mem_usage.total_needed / 1e6);
-      fflush(stdout);
+//      printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
+//             mem_usage.total_needed / 1e6);
+//      fflush(stdout);
 
       /* This is how you could access the solution matrix. */
       // double *sol = (double*) ((DNformat*) X.Store)->nzval;
-      dinf_norm_error(nrhs, &X, xact);
+//      dinf_norm_error(nrhs, &X, xact);
+      printf("%i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n", k, info,
+             Lstore->nnz, Ustore->nnz, mem_usage.for_lu / 1e6,
+             mem_usage.total_needed / 1e6, err, rpg, rcond, finish - start);
     }
     else if (info > 0 && lwork == -1)
       printf("** Estimated memory: %d bytes\n", info - n);
     else
       printf("ERROR: dgssvx() returns info %d\n", info);
 
-    if (options.PrintStat)
-      StatPrint(&stat);
+//    if (options.PrintStat)
+//      StatPrint(&stat);
 
   }  // reps
+
+  int ret = remove(tmpfile);
+  // Todo: Handle error.
 
   StatFree(&stat);
   SUPERLU_FREE(rhsb);

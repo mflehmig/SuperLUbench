@@ -17,6 +17,8 @@
  *
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <slu_mt_ddefs.h>
 #include "../Util.h"
@@ -39,7 +41,7 @@ int main(int argc, char *argv[])
   int_t nprocs;
   fact_t fact;
   trans_t trans;
-  yes_no_t refact, usepr;
+  yes_no_t usepr;
   equed_t equed;
   double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
    values in A and thus a, we save the original values in a.*/
@@ -49,17 +51,18 @@ int main(int argc, char *argv[])
   void *work;
   superlumt_options_t superlumt_options;
   int_t info, lwork, nrhs, ldx, panel_size, relax;
-  int_t m, n, nnz, i;
+  int_t m, n, nnz;
   double *rhsb_0, *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
   double u, drop_tol, rpg, rcond;
-  superlu_memusage_t superlu_memusage;
+  superlu_memusage_t slu_mem;
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
   colperm_t permc_spec;
   int reps;
+  char tmpfile[] = ".infnorm.txt";
 
   /* Default parameters to control factorization. */
   reps = 1;
@@ -67,7 +70,6 @@ int main(int argc, char *argv[])
   fact = EQUILIBRATE;
   trans = NOTRANS;
   equed = NOEQUIL;
-  refact = NO;
   panel_size = sp_ienv(1);
   relax = sp_ienv(2);
   u = 1.0;
@@ -87,7 +89,7 @@ int main(int argc, char *argv[])
     work = SUPERLU_MALLOC(lwork);
     printf("Use work space of size LWORK = " IFMT " bytes\n", lwork);
     if (!work)
-      SUPERLU_ABORT("DLINSOLX: cannot allocate work[]");
+      SUPERLU_ABORT("PDLINSOLX: cannot allocate work[]");
   }
 
   /* Read matrix A from a file in Matrix Market format.*/
@@ -187,13 +189,17 @@ int main(int argc, char *argv[])
   if (!(superlumt_options.part_super_h = intMalloc(n)))
     SUPERLU_ABORT("Malloc fails for colcnt_h[].");
 
-  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
-  // we need to recreate them in each iteration (using the same memory locations).
+  printf(
+      "\n#Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB], ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
+  double err;
+  char dummy[128];
   int k;
   long long start, finish;
+  // Solve the system 'reps' times.  Since A, b and x are overwritten by dgssvx(),
+  // we need to recreate them in each iteration (using the same memory locations).
   for (k = 0; k < reps; ++k)
   {
-    printf("\n\n-- Iteration # %i\n", k);
+    //! printf("\n\n-- Iteration # %i\n", k);
 
     // Fresh copy of a (and thus A), because values in a may be overwritten by dgssvx().
     memcpy(a, a_0, sizeof(double) * nnz);
@@ -206,30 +212,30 @@ int main(int argc, char *argv[])
     get_perm_c(permc_spec, &A, perm_c);
 
     pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L,
-            &U, &B, &X, &rpg, &rcond, ferr, berr, &superlu_memusage, &info);
+            &U, &B, &X, &rpg, &rcond, ferr, berr, &slu_mem, &info);
     finish = current_timestamp();
-    printf("pdgssvx(): info " IFMT "\n", info);
-    printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
+    //! printf("pdgssvx(): info " IFMT "\n", info);
+    //! printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
 
     if (info == 0 || info == n + 1)
     {
-      printf("Recip. pivot growth = %e\n", rpg);
-      printf("Recip. condition number = %e\n", rcond);
-      printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
-      for (i = 0; i < nrhs; ++i)
-        printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
+//      printf("Recip. pivot growth = %e\n", rpg);
+//      printf("Recip. condition number = %e\n", rcond);
+//      printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
+//      for (i = 0; i < nrhs; ++i)
+//        printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
 
       Lstore = (SCPformat *) L.Store;
       Ustore = (NCPformat *) U.Store;
-      printf("No of nonzeros in factor L = " IFMT "\n", Lstore->nnz);
-      printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
-      printf("No of nonzeros in L+U = " IFMT "\n",
-             Lstore->nnz + Ustore->nnz - n);
-      printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
-             superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
-             superlu_memusage.expansions);
-      printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
-      fflush(stdout);
+//      printf("No of nonzeros in factor L = " IFMT "\n", Lstore->nnz);
+//      printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
+//      printf("No of nonzeros in L+U = " IFMT "\n",
+//             Lstore->nnz + Ustore->nnz - n);
+//      printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
+//             superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
+//             superlu_memusage.expansions);
+//      printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
+//      fflush(stdout);
 
       /* This is how you could access the solution matrix. */
       //    double *sol = (double*) ((DNformat*) X.Store)->nzval;
@@ -238,12 +244,41 @@ int main(int argc, char *argv[])
       //      printf("Computed and provided solutions match within %g eps.\n", eps);
       //    else
       //      printf("Computed and provided solutions DO NOT match within %g eps.\n", eps);
+//     dinf_norm_error(nrhs, &X, xact);
+      // Hack: We want inf norm. But SuperLU method dinf_norm_error() does not
+      //       store the norm value into a variable. Instead it calculates the
+      //       norm value and prints it to stderr. So, we redirect the stderr
+      //       to file and than read the value from file.
+      int stdout_fd = dup(STDOUT_FILENO);
+      freopen(tmpfile, "w", stdout);
       dinf_norm_error(nrhs, &X, xact);
+      fclose(stdout);
+      dup2(stdout_fd, STDOUT_FILENO);
+      stdout = fdopen(STDOUT_FILENO, "w");
+      close(stdout_fd);
+      // tmpfile contains "||X - Xtrue||/||X|| = 6.454921e-10", so we read strings
+      // until we get "=". Than, we read a double - the norm value!
+      fp = fopen(tmpfile, "r");
+      do
+      {
+        fscanf(fp, "%s", dummy);
+      }
+      while (strcmp(dummy, "="));
+      fscanf(fp, "%le", &err);
+      fclose(fp);
+      // End Hack.
+
+      printf("%d, %i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n",
+             superlumt_options.nprocs, k, info, Lstore->nnz, Ustore->nnz,
+             slu_mem.for_lu / 1e6, slu_mem.total_needed / 1e6, err, rpg, rcond,
+             finish - start);
     }
     else if (info > 0 && lwork == -1)
       printf("** Estimated memory: " IFMT " bytes\n", info - n);
 
   }  // reps
+  int ret = remove(tmpfile);
+  // Todo: Handle error.
 
   SUPERLU_FREE(rhsb);
   SUPERLU_FREE(rhsx);
