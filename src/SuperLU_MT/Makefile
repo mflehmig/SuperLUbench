@@ -7,7 +7,7 @@ EXECUTABLE=pdlinsolx
 all: $(SOURCES) $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CC) $(LD_SUPERLUMT) $(OBJECTS) -o $@
+	$(CC) $(OBJECTS) -o $@ $(LD_SUPERLUMT)
 
 .c.o:
 	$(CC) $(CFLAGS) $(I_SUPERLUMT) $< -o $@
