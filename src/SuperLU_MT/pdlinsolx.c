@@ -305,14 +305,13 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
         printf("\t-e <NOEQUIL/ROW/COL/BOTH> - equilibrate or not\n");
         printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
         printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
-        printf(
-            "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
-        printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
+        printf("\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
+        printf("\t-R <NUM> - Number of repetitively solve Ax=b\n");
         printf("\nRemark: The choice of ordering algorithm for the columns of A");
         printf(" can be specified\n\tvia the environment variable ORDERING. ");
         printf("Supported options: NATURAL, MMD_ATA,\n");
         printf("\tMMD_AT_PLUS_A, COLAMD (default), METIS_AT_PLUS_A.\n");
-        exit(1);
+        exit(0);
         break;
       case 'p':
         *nprocs = atoi(optarg);
