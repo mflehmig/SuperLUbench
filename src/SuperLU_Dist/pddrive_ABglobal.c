@@ -1,22 +1,40 @@
-/*! \file
- Copyright (c) 2003, The Regents of the University of California, through
- Lawrence Berkeley National Laboratory (subject to receipt of any required
- approvals from U.S. Dept. of Energy)
+/*
+Original work Copyright (c) 2003, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory (subject to receipt of any required
+approvals from U.S. Dept. of Energy)
 
- All rights reserved.
+Modified work Copyright 2018 Technische Universität Dresden, Germany
 
- The source code is distributed under BSD license, see the file License.txt
- at the top-level directory.
- */
+All rights reserved.
 
-/*! @file 
- * \brief Driver program for pdgssvx_ABglobal example
- *
- * <pre>
- * -- Distributed SuperLU routine (version 1.0) --
- * Lawrence Berkeley National Lab, Univ. of California Berkeley.
- * September 1, 1999
- * </pre>
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+(1) Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+(2) Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+(3) Neither the name of Lawrence Berkeley National Laboratory, U.S. Dept. of
+Energy nor the names of its contributors may be used to endorse or promote
+products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+/*
+ * This file is part of SuperLUbench (https://github.com/mflehmig/SuperLUbench.git)
  */
 
 #include <unistd.h>
@@ -49,6 +67,8 @@ colperm_t getSuperLUOrdering();
  * On an IBM SP, the program may be run by typing
  *    poe pddrive_ABglobal -r <proc rows> -c <proc columns> <input_file> -procs <p>
  * </pre>
+ *
+ * Modified work
  */
 int main(int argc, char *argv[])
 {
@@ -63,17 +83,17 @@ int main(int argc, char *argv[])
   int_t *asub_0, *asub, *xa;
   int_t m, n, nnz;
   int_t nprow, npcol;
-  int iam, info, ldb, ldx, nrhs;
-  char trans[1];
+  int iam, info;
   FILE *fp;
   char fileA[128];
   char fileB[128];
   char fileX[128];
+  char tmpfile[] = ".infnorm.txt"; // tmp file, c.f. Hack
   int reps = 1;
 
   nprow = 1; /* Default process rows.      */
   npcol = 1; /* Default process columns.   */
-  nrhs = 1; /* Number of right-hand side. */
+  const int nrhs = 1; /* Number of right-hand side. */
 
   /* ------------------------------------------------------------
    INITIALIZE MPI ENVIRONMENT.
@@ -214,23 +234,27 @@ int main(int argc, char *argv[])
   set_default_options_dist(&options);
   options.ColPerm = getSuperLUOrdering();
 
-  if (!iam)
-  {
-    print_sp_ienv_dist(&options);
-    print_options_dist(&options);
-  }
+//  if (!iam)
+//  {
+//    print_sp_ienv_dist(&options);
+//    print_options_dist(&options);
+//  }
 
-  /* Initialize ScalePermstruct and LUstruct. */
+  // Initialize ScalePermstruct and LUstruct.
   ScalePermstructInit(m, n, &ScalePermstruct);
   LUstructInit(n, &LUstruct);
+
+  if (!iam)
+    printf("\n#MPI-Procs, #Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB],"
+           " ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
   // Solve the system 'reps' times.  Since A, b and x are overwritten by pdgssvx_ABglobal(),
   // we need to recreate them in each iteration (using the same memory locations).
+  double err;
+  char dummy[128];
   int k;
   long long start, finish;
   for (k = 0; k < reps; ++k)
   {
-    printf("\n\n-- Iteration # %i\n", k);
-
     // Fresh copy of a (and thus A), because values in a may be overwritten by pdgssvx_ABglobal().
     memcpy(a, a_0, sizeof(double) * nnz);
     // Fresh copy of asub (and thus A), because values in asub may be overwritten by pdgssvx_ABglobal().
@@ -238,22 +262,44 @@ int main(int argc, char *argv[])
     // Fresh copy of rhs b, because values in rhsb may be overwritten by pdgssvx_ABglobal().
     memcpy(b, b_0, sizeof(double) * m);
 
-    /* Initialize the statistics variables. */
+    // Initialize the statistics variables.
     PStatInit(&stat);
 
     start = current_timestamp();
-    /* Call the linear equation solver. */
+    // Call the linear equation solver.
     pdgssvx_ABglobal(&options, &A, &ScalePermstruct, b, m, 1, &grid,
                      &LUstruct, berr, &stat, &info);
     finish = current_timestamp();
 
-    /* Compare value of info with A->ncol (=m). */
+    // Compare value of info with A->ncol (=m).
     if (!iam)
     {
       if (info == 0)
       {
-        printf("SUCCESS: pdgssvx_ABglobal() returns info %d which means FINE\n", info);
-        printf("Time for pdgssvx_ABglobal() [1e-6 s]: %lli\n", (finish - start));
+        // Hack: We want inf norm. But SuperLU method dinf_norm_error() does not
+        //       store the norm value into a variable. Instead it calculates the
+        //       norm value and prints it to stderr. So, we redirect the stderr
+        //       to file and than read the value from file.
+        int stdout_fd = dup(STDOUT_FILENO);
+        freopen(tmpfile, "w", stdout);
+        dinf_norm_error_dist(n, nrhs, b, m, xact, n, &grid);
+        fclose(stdout);
+        dup2(stdout_fd, STDOUT_FILENO);
+        stdout = fdopen(STDOUT_FILENO, "w");
+        close(stdout_fd);
+        // tmpfile contains "||X - Xtrue||/||X|| = 6.454921e-10", so we read strings
+        // until we get "=". Than, we read a double - the norm value!
+        fp = fopen(tmpfile, "r");
+        do
+        {
+          fscanf(fp, "%s", dummy);
+        }
+        while (strcmp(dummy, "="));
+        fscanf(fp, "%le", &err);
+        fclose(fp);
+        // End Hack.
+
+        printf("%d, %i, %i, %le, %lli \n", nprow * npcol, k, info, err, finish - start);
       }
       if (info > 0 && info <= m)
         printf(
@@ -265,13 +311,13 @@ int main(int argc, char *argv[])
             info);
     }
 
-    /* Check the accuracy of the solution (only if pdgssvx_ABglobal succeeded). */
-    if (!iam && info == 0)
-      dinf_norm_error_dist(n, nrhs, b, m, xact, n, &grid);
+    //PStatPrint(&options, &stat, &grid); /* Print the statistics. */
 
-    PStatPrint(&options, &stat, &grid); /* Print the statistics. */
+  } // Repetitions
 
-  } // reps
+  if (!iam)
+    remove(tmpfile);
+  // Todo: Handle error.
 
   /* ------------------------------------------------------------
    DEALLOCATE STORAGE.
@@ -310,15 +356,18 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
     switch (c)
     {
       case 'h':
+        printf("Solve a linear system Ax=b using pdgssvx_ABglobal() from SuperLU_DIST.\n");
         printf("Options:\n");
-        printf("\t-r <int>: process rows    (default %4d)\n", *nprow);
-        printf("\t-c <int>: process columns (default %4d)\n", *npcol);
+        printf("\t-r <int> - Process rows    (default %4d)\n", *nprow);
+        printf("\t-c <int> - Process columns (default %4d)\n", *npcol);
         printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
-        printf(
-            "\t-b <FILE> - File holding right hand side vector b in Matrix Market format\n");
-        printf(
-            "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
-        printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
+        printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
+        printf("\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
+        printf("\t-R <NUM> - Number of repetitively solve Ax=b\n");
+        printf("\nRemark: The choice of ordering algorithm for the columns of A");
+        printf(" can be specified\n\tvia the environment variable ORDERING. ");
+        printf("Supported options: NATURAL (default), MMD_ATA,\n");
+        printf("\tMMD_AT_PLUS_A, COLAMD, METIS_AT_PLUS_A, PARMETIS.\n");
         exit(0);
         break;
       case 'r':
