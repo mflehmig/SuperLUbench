@@ -43,12 +43,12 @@ int main(int argc, char *argv[])
   SuperMatrix B, X;
   NCformat *Ustore;
   SCformat *Lstore;
-  GlobalLU_t Glu;  // Facilitate multiple factorizations with SamePattern_SameRowPerm
-  double *a_0, *a; // Nonzero values of A. Since dgssvx may overwrite the
-                   // values in A and thus a, we save the original values in a_0.
+  GlobalLU_t Glu;   // Facilitate multiple factorizations with SamePattern_SameRowPerm
+  double *a_0, *a;  // Nonzero values of A. Since dgssvx may overwrite the
+                    // values in A and thus a, we save the original values in a_0.
   int *asub, *xa;
-  int *perm_r; // row permutations from partial pivoting */
-  int *perm_c; /* column permutation vector */
+  int *perm_r;  // row permutations from partial pivoting
+  int *perm_c;  // column permutation vector
   int *etree;
   void *work;
   int info, ldx;
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
   char fileB[128] = "";
   char fileX[128] = "";
   int permc_spec;
-  char tmpfile[] = ".infnorm.txt"; // tmp file, c.f. Hack
+  char tmpfile[] = ".infnorm.txt";  // tmp file, c.f. Hack
 
   // Defaults
   int lwork = 0;
@@ -74,7 +74,6 @@ int main(int argc, char *argv[])
   double u = 1.0;
   trans_t trans = NOTRANS;
   int reps = 1;
-
 
   // Can use command line input to modify the defaults.
   parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
@@ -98,10 +97,10 @@ int main(int argc, char *argv[])
   options.DiagPivotThresh = u;
   options.Trans = trans;
 
-  /* Add more functionalities that the defaults. */
-  options.PivotGrowth = YES; /* Compute reciprocal pivot growth */
-  options.ConditionNumber = YES;/* Compute reciprocal condition number */
-  options.IterRefine = SLU_DOUBLE; /* Perform double-precision refinement */
+  // Add more functionalities that the defaults.
+  options.PivotGrowth = YES;      // Compute reciprocal pivot growth
+  options.ConditionNumber = YES;  // Compute reciprocal condition number
+  options.IterRefine = SLU_DOUBLE; // Perform double-precision refinement
 
   if (lwork > 0)
   {
@@ -221,32 +220,32 @@ int main(int argc, char *argv[])
            &info);
     finish = current_timestamp();
 
-    // Hack: We want the inf. norm. But SuperLU method dinf_norm_error() does
-    //       not store the norm value into a variable. Instead it calculates
-    //       the norm value and prints it to stderr. So, we redirect the stderr
-    //       to file and than read the value from file.
-    int stdout_fd = dup(STDOUT_FILENO);
-    freopen(tmpfile, "w", stdout);
-    dinf_norm_error(nrhs, &X, xact);
-    fclose(stdout);
-    dup2(stdout_fd, STDOUT_FILENO);
-    stdout = fdopen(STDOUT_FILENO, "w");
-    close(stdout_fd);
-    // tmpfile contains "||X - Xtrue||/||X|| = 6.454921e-10", so we read strings
-    // until we get "=". Than, we read a double - the norm value!
-    fp = fopen(tmpfile, "r");
-    do
-    {
-      fscanf(fp, "%s", dummy);
-    }
-    while (strcmp(dummy, "="));
-    fscanf(fp, "%le", &err);
-    fclose(fp);
-    // End Hack.
-
     // Solution method finished fine: Output statistics.
     if (info == 0 || info == n + 1)
     {
+      // Hack: We want the inf. norm. But SuperLU method dinf_norm_error() does
+      //       not store the norm value into a variable. Instead it calculates
+      //       the norm value and prints it to stderr. So, we redirect the
+      //        stderr to file and than read the value from file.
+      int stdout_fd = dup(STDOUT_FILENO);
+      freopen(tmpfile, "w", stdout);
+      dinf_norm_error(nrhs, &X, xact);
+      fclose(stdout);
+      dup2(stdout_fd, STDOUT_FILENO);
+      stdout = fdopen(STDOUT_FILENO, "w");
+      close(stdout_fd);
+      // tmpfile contains "||X - Xtrue||/||X|| = 6.454921e-10", so we read
+      // strings until we get "=". Than, we read a double - the norm value!
+      fp = fopen(tmpfile, "r");
+      do
+      {
+        fscanf(fp, "%s", dummy);
+      }
+      while (strcmp(dummy, "="));
+      fscanf(fp, "%le", &err);
+      fclose(fp);
+      // End Hack.
+
       Lstore = (SCformat *) L.Store;
       Ustore = (NCformat *) U.Store;
       printf("%i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n", k, info,
@@ -261,7 +260,7 @@ int main(int argc, char *argv[])
     // if (options.PrintStat)
     //   StatPrint(&stat);
 
-  } // Repetitions
+  }  // Repetitions
 
   int ret = remove(tmpfile);
   // Todo: Handle error.
@@ -291,7 +290,6 @@ int main(int argc, char *argv[])
     SUPERLU_FREE(work);
 }
 
-
 /*
  * Parse command line inputs.
  */
@@ -309,17 +307,18 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
       case 'h':
         printf("Solve a linear system Ax=b using dgssvx() from SuperLU.\n");
         printf("Options:\n");
-        printf("\t-l <int> - length of work[*] array\n");
-        printf("\t-u <int> - pivoting threshold\n");
-        printf("\t-e <0 or 1> - equilibrate or not\n");
-        printf("\t-t <0 or 1> - solve transposed system or not\n");
+        printf("\t-l <int> - Length of work[*] array\n");
+        printf("\t-u <int> - Pivoting threshold\n");
+        printf("\t-e <0 or 1> - Equilibrate or not\n");
+        printf("\t-t <0 or 1> - Solve transposed system or not\n");
         printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
         printf(
             "\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf(
             "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
-        printf("\nRemark: The choice of ordering algorithm for the columns of A");
+        printf(
+            "\nRemark: The choice of ordering algorithm for the columns of A");
         printf(" can be specified\n\tvia the environment variable ORDERING. ");
         printf("Supported options: NATURAL, MMD_ATA,\n");
         printf("\tMMD_AT_PLUS_A, COLAMD (default), METIS_AT_PLUS_A.\n");
@@ -371,11 +370,8 @@ inline colperm_t getSuperLUOrdering()
   colperm_t ret = COLAMD;  // Default value.
   printf("SuperLU Ordering: ");
   const char* env_p = getenv("ORDERING");
-  // if(const char* env_p = getenv("ORDERING")) {
   if (env_p != NULL)
   {
-    // std::string env(env_p);
-    //if (env.compare("NATURAL") == 0) {
     if (strcmp(env_p, "NATURAL") == 0)
     {
       printf("NATURAL\n");
