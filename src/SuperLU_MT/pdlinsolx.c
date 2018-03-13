@@ -29,60 +29,58 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
                         trans_t *trans, equed_t *equed, char *fileA,
                         char *fileB, char *fileX, int *reps);
 colperm_t getSuperLUOrdering();
-int getNumThreads();
+//int getNumThreads();
 
+/**
+ * \brief Solve a linear system Ax=b using pdgssvx() from SuperLU_MT.
+ *
+ * The matrix A, the right hand side vector b and the known solution are read
+ * in from Matrix Market formated files.
+ * The system Ax=b is solved several times (-R NUM).
+ */
 int main(int argc, char *argv[])
 {
   SuperMatrix A, L, U;
   SuperMatrix B, X;
-  NCformat *Astore;
   SCPformat *Lstore;
   NCPformat *Ustore;
-  int_t nprocs;
-  fact_t fact;
-  trans_t trans;
-  yes_no_t usepr;
-  equed_t equed;
-  double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
-   values in A and thus a, we save the original values in a.*/
+  double *a_0, *a; // Nonzero values of A. Since dgssvx may overwrite the
+                   // values in A and thus a, we save the original values in a.
   int_t *asub, *xa;
-  int_t *perm_c; /* column permutation vector */
-  int_t *perm_r; /* row permutations from partial pivoting */
+  int_t *perm_c; // column permutation vector
+  int_t *perm_r; // row permutations from partial pivoting
   void *work;
   superlumt_options_t superlumt_options;
-  int_t info, lwork, nrhs, ldx, panel_size, relax;
+  int_t info, ldx;
   int_t m, n, nnz;
   double *rhsb_0, *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
-  double u, drop_tol, rpg, rcond;
+  double rpg, rcond;
   superlu_memusage_t slu_mem;
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
-  colperm_t permc_spec;
-  int reps;
-  char tmpfile[] = ".infnorm.txt";
+  char tmpfile[] = ".infnorm.txt"; // tmp file, c.f. Hack
 
-  /* Default parameters to control factorization. */
-  reps = 1;
-  nprocs = getNumThreads();
-  fact = EQUILIBRATE;
-  trans = NOTRANS;
-  equed = NOEQUIL;
-  panel_size = sp_ienv(1);
-  relax = sp_ienv(2);
-  u = 1.0;
-  usepr = NO;
-  drop_tol = 0.0;
-  lwork = 0;
-  nrhs = 1;
-
-  permc_spec = getSuperLUOrdering();
+  // Default parameters to control factorization.
+  int reps = 1;
+  int nprocs = 1;
+  fact_t fact = EQUILIBRATE;
+  trans_t trans = NOTRANS;
+  equed_t equed = NOEQUIL;
+  int panel_size = sp_ienv(1);
+  int relax = sp_ienv(2);
+  double u = 1.0;
+  yes_no_t usepr = NO;
+  double drop_tol = 0.0;
+  int_t lwork = 0;
+  const int nrhs = 1;
 
   /* Command line options to modify default behaviour. */
   parse_command_line(argc, argv, &nprocs, &lwork, &panel_size, &relax, &u,
                      &fact, &trans, &equed, fileA, fileB, fileX, &reps);
+  colperm_t permc_spec = getSuperLUOrdering();
 
   if (lwork > 0)
   {
@@ -92,7 +90,7 @@ int main(int argc, char *argv[])
       SUPERLU_ABORT("PDLINSOLX: cannot allocate work[]");
   }
 
-  /* Read matrix A from a file in Matrix Market format.*/
+  // Read matrix A from a file in Matrix Market format.
   FILE *fp;
   fp = fopen(fileA, "r");
   if (fp == NULL)
@@ -108,9 +106,8 @@ int main(int argc, char *argv[])
     SUPERLU_ABORT("Malloc fails for a[].");
   memcpy(a, a_0, sizeof(double) * nnz);
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
-  Astore = A.Store;
   printf("Dimension " IFMT "x" IFMT "; # nonzeros " IFMT "\n", A.nrow, A.ncol,
-         Astore->nnz);
+         nnz);
 
   if (!(rhsb_0 = doubleMalloc(m * nrhs)))
     SUPERLU_ABORT("Malloc fails for rhsb_0[].");
@@ -189,8 +186,8 @@ int main(int argc, char *argv[])
   if (!(superlumt_options.part_super_h = intMalloc(n)))
     SUPERLU_ABORT("Malloc fails for colcnt_h[].");
 
-  printf(
-      "\n#Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB], ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
+  printf("\n#Threads, #Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB],"
+         " ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
   double err;
   char dummy[128];
   int k;
@@ -199,52 +196,25 @@ int main(int argc, char *argv[])
   // we need to recreate them in each iteration (using the same memory locations).
   for (k = 0; k < reps; ++k)
   {
-    //! printf("\n\n-- Iteration # %i\n", k);
-
-    // Fresh copy of a (and thus A), because values in a may be overwritten by dgssvx().
+    // Fresh copy of a (and thus A) and rhs b, because values in a may be
+    // overwritten by pdgssvx().
     memcpy(a, a_0, sizeof(double) * nnz);
-    // Fresh copy of rhs b, because values in rhsb may be overwritten by dgssvx().
     memcpy(rhsb, rhsb_0, sizeof(double) * m);
 
-    // Solve the system and compute the condition number
-    // and error bounds using pdgssvx.
+    // In order to be fair against the benchmarks dlinsolx and pddrive_ABglobal,
+    // the timed solution process includes the permutation computation.
+    // Get column permutation vector perm_c[], according to permc_spec.
     start = current_timestamp();
     get_perm_c(permc_spec, &A, perm_c);
 
+    // Solve Ax=b and compute the condition number and error bounds using pdgssvx.
     pdgssvx(nprocs, &superlumt_options, &A, perm_c, perm_r, &equed, R, C, &L,
             &U, &B, &X, &rpg, &rcond, ferr, berr, &slu_mem, &info);
     finish = current_timestamp();
-    //! printf("pdgssvx(): info " IFMT "\n", info);
-    //! printf("Time for pdgssvx() [1e-6 s]: %lli\n", (finish - start));
 
+    // Solution method finished fine: Output statistics.
     if (info == 0 || info == n + 1)
     {
-//      printf("Recip. pivot growth = %e\n", rpg);
-//      printf("Recip. condition number = %e\n", rcond);
-//      printf("%8s%16s%16s\n", "rhs", "FERR", "BERR");
-//      for (i = 0; i < nrhs; ++i)
-//        printf(IFMT "%16e%16e\n", i + 1, ferr[i], berr[i]);
-
-      Lstore = (SCPformat *) L.Store;
-      Ustore = (NCPformat *) U.Store;
-//      printf("No of nonzeros in factor L = " IFMT "\n", Lstore->nnz);
-//      printf("No of nonzeros in factor U = " IFMT "\n", Ustore->nnz);
-//      printf("No of nonzeros in L+U = " IFMT "\n",
-//             Lstore->nnz + Ustore->nnz - n);
-//      printf("L\\U MB %.3f\ttotal MB needed %.3f\texpansions " IFMT "\n",
-//             superlu_memusage.for_lu / 1e6, superlu_memusage.total_needed / 1e6,
-//             superlu_memusage.expansions);
-//      printf("superlumt_options.nprocs = %d \n", superlumt_options.nprocs);
-//      fflush(stdout);
-
-      /* This is how you could access the solution matrix. */
-      //    double *sol = (double*) ((DNformat*) X.Store)->nzval;
-      //    int ret = compareSolution(sol, m, xact, eps);
-      //    if (!ret)
-      //      printf("Computed and provided solutions match within %g eps.\n", eps);
-      //    else
-      //      printf("Computed and provided solutions DO NOT match within %g eps.\n", eps);
-//     dinf_norm_error(nrhs, &X, xact);
       // Hack: We want inf norm. But SuperLU method dinf_norm_error() does not
       //       store the norm value into a variable. Instead it calculates the
       //       norm value and prints it to stderr. So, we redirect the stderr
@@ -268,6 +238,8 @@ int main(int argc, char *argv[])
       fclose(fp);
       // End Hack.
 
+      Lstore = (SCPformat *) L.Store;
+      Ustore = (NCPformat *) U.Store;
       printf("%d, %i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n",
              superlumt_options.nprocs, k, info, Lstore->nnz, Ustore->nnz,
              slu_mem.for_lu / 1e6, slu_mem.total_needed / 1e6, err, rpg, rcond,
@@ -276,11 +248,12 @@ int main(int argc, char *argv[])
     else if (info > 0 && lwork == -1)
       printf("** Estimated memory: " IFMT " bytes\n", info - n);
 
-  }  // reps
+  }  // Repetitions
   int ret = remove(tmpfile);
   // Todo: Handle error.
 
   SUPERLU_FREE(rhsb);
+  SUPERLU_FREE(rhsb_0);
   SUPERLU_FREE(rhsx);
   SUPERLU_FREE(xact);
   SUPERLU_FREE(perm_r);
@@ -320,22 +293,25 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
     switch (c)
     {
       case 'h':
+        printf("Solve a linear system Ax=b using pdgssvx() from SuperLU_MT.\n");
         printf("Options:\n");
-        printf("\t-p <int> - number of processes\n");
-        printf("\t-l <int> - length of work[*] array\n");
-        printf("\t-w <int> - panel size\n");
-        printf("\t-s <int> - maximum size of relaxed supernodes\n");
-        printf("\t-u <int> - pivoting threshold\n");
+        printf("\t-p <int> - Number of processes\n");
+        printf("\t-l <int> - Length of work[*] array\n");
+        printf("\t-w <int> - Panel size\n");
+        printf("\t-s <int> - Maximum size of relaxed supernodes\n");
+        printf("\t-u <int> - Pivoting threshold\n");
         printf("\t-f <FACTORED/DOFACT/EQUILIBRATE> - factor control\n");
         printf("\t-t <NOTRANS/TRANS/CONJ> - transpose or not\n");
-        //printf("\t-r <NO/YES> - refactor or not\n");
         printf("\t-e <NOEQUIL/ROW/COL/BOTH> - equilibrate or not\n");
         printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
-        printf(
-            "\t-b <FILE> - File holding right hand side vector b in Matrix Market format\n");
+        printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf(
             "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
+        printf("\nRemark: The choice of ordering algorithm for the columns of A");
+        printf(" can be specified\n\tvia the environment variable ORDERING. ");
+        printf("Supported options: NATURAL, MMD_ATA,\n");
+        printf("\tMMD_AT_PLUS_A, COLAMD (default), METIS_AT_PLUS_A.\n");
         exit(1);
         break;
       case 'p':
@@ -359,9 +335,6 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
       case 't':
         *trans = (trans_t) atoi(optarg);
         break;
-//      case 'r':
-//        *refact = (yes_no_t) atoi(optarg);
-//        break;
       case 'e':
         *equed = (equed_t) atoi(optarg);
         break;
@@ -387,31 +360,31 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
 /**
  * \brief Return value of env. variable OMP_NUM_THREADS.
  */
-int getNumThreads()
-{
-  int nT;
-  const char* env = getenv("OMP_NUM_THREADS");
-  // if(const char* env_p = getenv("ORDERING")) {
-  if (env != NULL)
-  {
-    nT = atoi(env);
-    if (nT <= 0)
-    {
-      printf(
-          "\nWARNING: Value of OMP_NUM_THREADS is less or equal to zero. Set "
-          "number of threads to 1.\n");
-      nT = 1;
-    }
-  }
-  else
-  {
-    printf(
-        "\nWARNING: Number of threads is not specified. Set it via environment"
-        "variable OMP_NUM_THREADS=NUM. Use default value of 1 thread.\n");
-    nT = 1;
-  }
-  return nT;
-}
+//int getNumThreads()
+//{
+//  int nT;
+//  const char* env = getenv("OMP_NUM_THREADS");
+//  // if(const char* env_p = getenv("ORDERING")) {
+//  if (env != NULL)
+//  {
+//    nT = atoi(env);
+//    if (nT <= 0)
+//    {
+//      printf(
+//          "\nWARNING: Value of OMP_NUM_THREADS is less or equal to zero. Set "
+//          "number of threads to 1.\n");
+//      nT = 1;
+//    }
+//  }
+//  else
+//  {
+//    printf(
+//        "\nWARNING: Number of threads is not specified. Set it via environment"
+//        "variable OMP_NUM_THREADS=NUM. Use default value of 1 thread.\n");
+//    nT = 1;
+//  }
+//  return nT;
+//}
 
 /**
  * \brief Return column permutation specification for SuperLU_MT.
@@ -425,11 +398,8 @@ inline colperm_t getSuperLUOrdering()
   colperm_t ret = COLAMD;  // Default value.
   printf("SuperLU Ordering: ");
   const char* env_p = getenv("ORDERING");
-  // if(const char* env_p = getenv("ORDERING")) {
   if (env_p != NULL)
   {
-    // std::string env(env_p);
-    //if (env.compare("NATURAL") == 0) {
     if (strcmp(env_p, "NATURAL") == 0)
     {
       printf("NATURAL\n");
