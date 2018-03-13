@@ -33,34 +33,30 @@ colperm_t getSuperLUOrdering();
  * \brief Solve a linear system Ax=b using dgssvx() from SuperLU.
  *
  * The matrix A, the right hand side vector b and the known solution are read
- * in from Matrix Market files.
- * The system Ax=b is solved several times (-reps NUM).
+ * in from Matrix Market formated files.
+ * The system Ax=b is solved several times (-R NUM).
  */
 int main(int argc, char *argv[])
 {
   char equed[1];
-  yes_no_t equil;
-  trans_t trans;
   SuperMatrix A, L, U;
   SuperMatrix B, X;
-  NCformat *Astore;
   NCformat *Ustore;
   SCformat *Lstore;
-  GlobalLU_t Glu; /* facilitate multiple factorizations with
-   SamePattern_SameRowPerm                  */
-  double *a_0, *a; /* Nonzero values of A. Since dgssvx may overwrite the
-   values in A and thus a, we save the original values in a.*/
+  GlobalLU_t Glu;  // Facilitate multiple factorizations with SamePattern_SameRowPerm
+  double *a_0, *a; // Nonzero values of A. Since dgssvx may overwrite the
+                   // values in A and thus a, we save the original values in a_0.
   int *asub, *xa;
-  int *perm_r; /* row permutations from partial pivoting */
+  int *perm_r; // row permutations from partial pivoting */
   int *perm_c; /* column permutation vector */
   int *etree;
   void *work;
-  int info, lwork, nrhs, ldx;
+  int info, ldx;
   int m, n, nnz;
   double *rhsb_0, *rhsb, *rhsx, *xact;
   double *R, *C;
   double *ferr, *berr;
-  double u, rpg, rcond;
+  double rpg, rcond;
   mem_usage_t mem_usage;
   superlu_options_t options;
   SuperLUStat_t stat;
@@ -68,17 +64,21 @@ int main(int argc, char *argv[])
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
-  int permc_spec, reps;
-  char tmpfile[] = ".infnorm.txt";
+  int permc_spec;
+  char tmpfile[] = ".infnorm.txt"; // tmp file, c.f. Hack
 
-  /* Defaults */
-  lwork = 0;
-  nrhs = 1;
-  equil = YES;
-  u = 1.0;
-  trans = NOTRANS;
-  reps = 1;
+  // Defaults
+  int lwork = 0;
+  const int nrhs = 1;
+  yes_no_t equil = YES;
+  double u = 1.0;
+  trans_t trans = NOTRANS;
+  int reps = 1;
 
+
+  // Can use command line input to modify the defaults.
+  parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
+                     fileX, &reps);
   /* Set the default input options:
    options.Fact = DOFACT;
    options.Equil = YES;
@@ -94,10 +94,6 @@ int main(int argc, char *argv[])
   set_default_options(&options);
   permc_spec = getSuperLUOrdering();
   options.ColPerm = permc_spec;
-
-  /* Can use command line input to modify the defaults. */
-  parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
-                     fileX, &reps);
   options.Equil = equil;
   options.DiagPivotThresh = u;
   options.Trans = trans;
@@ -116,7 +112,7 @@ int main(int argc, char *argv[])
     }
   }
 
-  /* Read matrix A from a file in Matrix Market format.*/
+  // Read matrix A from a file in Matrix Market format.
   fp = fopen(fileA, "r");
   if (fp == NULL)
   {
@@ -131,10 +127,8 @@ int main(int argc, char *argv[])
     ABORT("Malloc fails for a[].");
   memcpy(a, a_0, sizeof(double) * nnz);
   dCreate_CompCol_Matrix(&A, m, n, nnz, a, asub, xa, SLU_NC, SLU_D, SLU_GE);
-  Astore = A.Store;
-//  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
 
-// Allocate memory for b, x and more.
+  // Allocate memory for b, x and more.
   if (!(rhsb_0 = doubleMalloc(m * nrhs)))
     ABORT("Malloc fails for rhsb_0[].");
   if (!(rhsb = doubleMalloc(m * nrhs)))
@@ -146,7 +140,7 @@ int main(int argc, char *argv[])
   xact = doubleMalloc(n * nrhs);
   ldx = n;
 
-  /* Read matrix b and x from a file in Matrix Market format.*/
+  // Read matrix b and x from a file in Matrix Market format.
   if (strcmp(fileB, "") != 0 && strcmp(fileX, "") != 0)
   {
     printf("Read in b and x from provided files.\n");
@@ -195,10 +189,10 @@ int main(int argc, char *argv[])
   printf("A: %s\n", fileA);
   printf("b: %s\n", fileB);
   printf("x: %s\n", fileX);
-  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, Astore->nnz);
+  printf("Dimension %dx%d; # nonzeros %d\n", A.nrow, A.ncol, nnz);
 
-  printf(
-      "\n#Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB], ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
+  printf("\n#Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB],"
+         " ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
   int k;
   long long start, finish;
   double err;
@@ -207,28 +201,29 @@ int main(int argc, char *argv[])
   // we need to recreate them in each iteration (using the same memory locations).
   for (k = 0; k < reps; ++k)
   {
-    /* Initialize the statistics variables. */
+    // Initialize the statistics variables.
     StatInit(&stat);
 
-    // Fresh copy of a (and thus A), because values in a may be overwritten by dgssvx().
+    // Fresh copy of a (and thus A) and rhsb b, because values in a may be
+    // overwritten by dgssvx().
     memcpy(a, a_0, sizeof(double) * nnz);
-    // Fresh copy of rhs b, because values in rhsb may be overwritten by dgssvx().
     memcpy(rhsb, rhsb_0, sizeof(double) * m);
 
+    // In order to be fair against the benchmarks pdlinsolx and pddrive_ABglobal,
+    // the timed solution process includes the permutation computation.
+    // Get column permutation vector perm_c[], according to permc_spec.
     start = current_timestamp();
-    /* Get column permutation vector perm_c[], according to permc_spec. */
     get_perm_c(permc_spec, &A, perm_c);
 
-    // Solve the system and compute the condition number
-    // and error bounds using dgssvx.
+    // Solve Ax=b and compute the condition number and error bounds using dgssvx.
     dgssvx(&options, &A, perm_c, perm_r, etree, equed, R, C, &L, &U, work,
            lwork, &B, &X, &rpg, &rcond, ferr, berr, &Glu, &mem_usage, &stat,
            &info);
     finish = current_timestamp();
 
-    // Hack: We want inf norm. But SuperLU method dinf_norm_error() does not
-    //       store the norm value into a variable. Instead it calculates the
-    //       norm value and prints it to stderr. So, we redirect the stderr
+    // Hack: We want the inf. norm. But SuperLU method dinf_norm_error() does
+    //       not store the norm value into a variable. Instead it calculates
+    //       the norm value and prints it to stderr. So, we redirect the stderr
     //       to file and than read the value from file.
     int stdout_fd = dup(STDOUT_FILENO);
     freopen(tmpfile, "w", stdout);
@@ -246,41 +241,14 @@ int main(int argc, char *argv[])
     }
     while (strcmp(dummy, "="));
     fscanf(fp, "%le", &err);
-
     fclose(fp);
     // End Hack.
 
+    // Solution method finished fine: Output statistics.
     if (info == 0 || info == n + 1)
     {
-//      if (options.PivotGrowth == YES) {
-//        printf("Recip. pivot growth = %e\n", rpg);
-//      }
-//      if (options.ConditionNumber == YES) {
-//        printf("Recip. condition number = %e\n", rcond);
-//      }
-//      if (options.IterRefine != NOREFINE)
-//      {
-//        printf("Iterative Refinement:\n");
-//        printf("%8s%8s%16s%16s\n", "rhs", "Steps", "FERR", "BERR");
-//        int i;
-//        for (i = 0; i < nrhs; ++i)
-//          printf("%8d%8d%16e%16e\n", i + 1, stat.RefineSteps, ferr[i], berr[i]);
-//      }
       Lstore = (SCformat *) L.Store;
       Ustore = (NCformat *) U.Store;
-//      printf("No of nonzeros in factor L = %d\n", Lstore->nnz);
-//      printf("No of nonzeros in factor U = %d\n", Ustore->nnz);
-//      printf("No of nonzeros in L+U = %d\n", Lstore->nnz + Ustore->nnz - n);
-//      printf("FILL ratio = %.1f\n",
-//             (float) (Lstore->nnz + Ustore->nnz - n) / nnz);
-
-//      printf("L\\U MB %.3f\ttotal MB needed %.3f\n", mem_usage.for_lu / 1e6,
-//             mem_usage.total_needed / 1e6);
-//      fflush(stdout);
-
-      /* This is how you could access the solution matrix. */
-      // double *sol = (double*) ((DNformat*) X.Store)->nzval;
-//      dinf_norm_error(nrhs, &X, xact);
       printf("%i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n", k, info,
              Lstore->nnz, Ustore->nnz, mem_usage.for_lu / 1e6,
              mem_usage.total_needed / 1e6, err, rpg, rcond, finish - start);
@@ -290,16 +258,18 @@ int main(int argc, char *argv[])
     else
       printf("ERROR: dgssvx() returns info %d\n", info);
 
-//    if (options.PrintStat)
-//      StatPrint(&stat);
+    // if (options.PrintStat)
+    //   StatPrint(&stat);
 
-  }  // reps
+  } // Repetitions
 
   int ret = remove(tmpfile);
   // Todo: Handle error.
 
+  // Free Memory
   StatFree(&stat);
   SUPERLU_FREE(rhsb);
+  SUPERLU_FREE(rhsb_0);
   SUPERLU_FREE(rhsx);
   SUPERLU_FREE(xact);
   SUPERLU_FREE(etree);
@@ -309,7 +279,7 @@ int main(int argc, char *argv[])
   SUPERLU_FREE(C);
   SUPERLU_FREE(ferr);
   SUPERLU_FREE(berr);
-  Destroy_CompCol_Matrix(&A);
+  Destroy_CompCol_Matrix(&A);     // frees a, asub, xa
   Destroy_SuperMatrix_Store(&B);
   Destroy_SuperMatrix_Store(&X);
   if (lwork == 0)
@@ -319,8 +289,8 @@ int main(int argc, char *argv[])
   }
   else if (lwork > 0)
     SUPERLU_FREE(work);
-
 }
+
 
 /*
  * Parse command line inputs.
@@ -337,6 +307,7 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
     switch (c)
     {
       case 'h':
+        printf("Solve a linear system Ax=b using dgssvx() from SuperLU.\n");
         printf("Options:\n");
         printf("\t-l <int> - length of work[*] array\n");
         printf("\t-u <int> - pivoting threshold\n");
@@ -344,10 +315,14 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
         printf("\t-t <0 or 1> - solve transposed system or not\n");
         printf("\t-A <FILE> - File holding matrix A in Matrix Market format\n");
         printf(
-            "\t-b <FILE> - File holding right hand side vector b in Matrix Market format\n");
+            "\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf(
             "\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of iteratively solve Ax=b\n");
+        printf("\nRemark: The choice of ordering algorithm for the columns of A");
+        printf(" can be specified\n\tvia the environment variable ORDERING. ");
+        printf("Supported options: NATURAL, MMD_ATA,\n");
+        printf("\tMMD_AT_PLUS_A, COLAMD (default), METIS_AT_PLUS_A.\n");
         exit(1);
         break;
       case 'l':
