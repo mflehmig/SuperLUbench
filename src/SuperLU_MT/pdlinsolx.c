@@ -47,7 +47,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
                         int_t *w, int_t *relax, double *u, fact_t *fact,
                         trans_t *trans, equed_t *equed, char *fileA,
-                        char *fileB, char *fileX, int *reps);
+                        char *fileB, char *fileX, int *reps, int* verbose);
 colperm_t getSuperLUOrdering();
 //int getNumThreads();
 
@@ -78,6 +78,7 @@ int main(int argc, char *argv[])
   double *ferr, *berr;
   double rpg, rcond;
   superlu_memusage_t slu_mem;
+  Gstat_t Gstat;
   char fileA[128];
   char fileB[128] = "";
   char fileX[128] = "";
@@ -96,10 +97,12 @@ int main(int argc, char *argv[])
   double drop_tol = 0.0;
   int_t lwork = 0;
   const int nrhs = 1;
+  int verbose = 0;
 
   /* Command line options to modify default behaviour. */
   parse_command_line(argc, argv, &nprocs, &lwork, &panel_size, &relax, &u,
-                     &fact, &trans, &equed, fileA, fileB, fileX, &reps);
+                     &fact, &trans, &equed, fileA, fileB, fileX, &reps,
+                     &verbose);
   colperm_t permc_spec = getSuperLUOrdering();
 
   if (lwork > 0)
@@ -194,7 +197,13 @@ int main(int argc, char *argv[])
   superlumt_options.drop_tol = drop_tol;
   superlumt_options.diag_pivot_thresh = u;
   superlumt_options.SymmetricMode = NO;
-  superlumt_options.PrintStat = YES;
+
+  // Yeah, options.printStat has no effect on the communicativeness of function
+  // pdgssvx().
+  //  if (verbose)
+  //    superlumt_options.PrintStat = YES;
+  //  else
+  superlumt_options.PrintStat = NO;
   superlumt_options.perm_c = perm_c;
   superlumt_options.perm_r = perm_r;
   superlumt_options.work = work;
@@ -303,12 +312,12 @@ int main(int argc, char *argv[])
 void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
                         int_t *w, int_t *relax, double *u, fact_t *fact,
                         trans_t *trans, equed_t *equed, char *fileA,
-                        char *fileB, char *fileX, int *reps)
+                        char *fileB, char *fileX, int *reps, int* verbose)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:e:A:b:x:R:")) != EOF)
+  while ((c = getopt(argc, argv, "hp:l:w:s:u:f:t:e:A:b:x:R:v")) != EOF)
   {
     switch (c)
     {
@@ -327,6 +336,7 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
         printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf("\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of repetitively solve Ax=b\n");
+        printf("\t-v       - Print additional information and statistics");
         printf("\nRemark: The choice of ordering algorithm for the columns of A");
         printf(" can be specified\n\tvia the environment variable ORDERING. ");
         printf("Supported options: NATURAL, MMD_ATA,\n");
@@ -368,6 +378,9 @@ void parse_command_line(int argc, char *argv[], int_t *nprocs, int_t *lwork,
         break;
       case 'R':  // repetitions
         *reps = atoi(optarg);
+        break;
+      case 'v':
+        *verbose = 1;
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);

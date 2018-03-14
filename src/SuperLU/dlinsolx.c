@@ -47,7 +47,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 void parse_command_line(int argc, char *argv[], int *lwork, double *u,
                         yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX, int *reps);
+                        char *fileB, char *fileX, int *reps, int* verbose);
 colperm_t getSuperLUOrdering();
 
 /**
@@ -95,10 +95,11 @@ int main(int argc, char *argv[])
   double u = 1.0;
   trans_t trans = NOTRANS;
   int reps = 1;
+  int verbose = 0;
 
   // Can use command line input to modify the defaults.
   parse_command_line(argc, argv, &lwork, &u, &equil, &trans, fileA, fileB,
-                     fileX, &reps);
+                     fileX, &reps, &verbose);
   /* Set the default input options:
    options.Fact = DOFACT;
    options.Equil = YES;
@@ -278,9 +279,8 @@ int main(int argc, char *argv[])
     else
       printf("ERROR: dgssvx() returns info %d\n", info);
 
-    // if (options.PrintStat)
-    //   StatPrint(&stat);
-
+    if (verbose)//options.PrintStat)
+      StatPrint(&stat);
   }  // Repetitions
 
   int ret = remove(tmpfile);
@@ -316,12 +316,12 @@ int main(int argc, char *argv[])
  */
 void parse_command_line(int argc, char *argv[], int *lwork, double *u,
                         yes_no_t *equil, trans_t *trans, char *fileA,
-                        char *fileB, char *fileX, int *reps)
+                        char *fileB, char *fileX, int *reps, int* verbose)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:R:")) != EOF)
+  while ((c = getopt(argc, argv, "hl:u:e:t:A:b:x:R:v")) != EOF)
   {
     switch (c)
     {
@@ -336,6 +336,7 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
         printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf("\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of repetitively solve Ax=b\n");
+        printf("\t-v       - Print additional information and statistics");
         printf("\nRemark: The choice of ordering algorithm for the columns of A");
         printf(" can be specified\n\tvia the environment variable ORDERING. ");
         printf("Supported options: NATURAL, MMD_ATA,\n");
@@ -365,6 +366,9 @@ void parse_command_line(int argc, char *argv[], int *lwork, double *u,
         break;
       case 'R':  // repetitions
         *reps = atoi(optarg);
+        break;
+      case 'v':
+        *verbose = 1;
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);

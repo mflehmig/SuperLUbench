@@ -43,7 +43,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../dreadMM.h"
 
 void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
-                        char *fileA, char *fileB, char *fileX, int *reps);
+                        char *fileA, char *fileB, char *fileX, int *reps,
+                        int* verbose);
 colperm_t getSuperLUOrdering();
 
 /*! \brief
@@ -90,6 +91,7 @@ int main(int argc, char *argv[])
   char fileX[128];
   char tmpfile[] = ".infnorm.txt"; // tmp file, c.f. Hack
   int reps = 1;
+  int verbose = 0;
 
   nprow = 1; /* Default process rows.      */
   npcol = 1; /* Default process columns.   */
@@ -101,7 +103,8 @@ int main(int argc, char *argv[])
   MPI_Init(&argc, &argv);
 
   /* Parse command line argv[]. */
-  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX, &reps);
+  parse_command_line(argc, argv, &nprow, &npcol, fileA, fileB, fileX, &reps,
+                     &verbose);
 
   /* ------------------------------------------------------------
    INITIALIZE THE SUPERLU PROCESS GRID.
@@ -234,11 +237,15 @@ int main(int argc, char *argv[])
   set_default_options_dist(&options);
   options.ColPerm = getSuperLUOrdering();
 
-//  if (!iam)
-//  {
-//    print_sp_ienv_dist(&options);
-//    print_options_dist(&options);
-//  }
+  if (!verbose)
+    options.PrintStat = NO;
+
+  if (!iam && verbose)
+  {
+    print_sp_ienv_dist(&options);
+    print_options_dist(&options);
+    printf("ISPEC: %d\n", options.ColPerm);
+  }
 
   // Initialize ScalePermstruct and LUstruct.
   ScalePermstructInit(m, n, &ScalePermstruct);
@@ -346,12 +353,13 @@ int main(int argc, char *argv[])
  * Parse command line options.
  */
 void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
-                        char *fileA, char *fileB, char *fileX, int *reps)
+                        char *fileA, char *fileB, char *fileX, int *reps,
+                        int* verbose)
 {
   int c;
   extern char *optarg;
 
-  while ((c = getopt(argc, argv, "hr:c:A:b:x:R:")) != EOF)
+  while ((c = getopt(argc, argv, "hr:c:A:b:x:R:v")) != EOF)
   {
     switch (c)
     {
@@ -364,6 +372,7 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
         printf("\t-b <FILE> - File holding rhs vector b in Matrix Market format\n");
         printf("\t-x <FILE> - File holding known solution vector x in Matrix Market format\n");
         printf("\t-R <NUM> - Number of repetitively solve Ax=b\n");
+        printf("\t-v       - Print additional information and statistics");
         printf("\nRemark: The choice of ordering algorithm for the columns of A");
         printf(" can be specified\n\tvia the environment variable ORDERING. ");
         printf("Supported options: NATURAL (default), MMD_ATA,\n");
@@ -387,6 +396,9 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
         break;
       case 'R':  // repetitions
         *reps = atoi(optarg);
+        break;
+      case 'v':
+        *verbose = 1;
         break;
       default:
         fprintf(stderr, "Invalid command line option %s.\n", optarg);
