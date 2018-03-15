@@ -472,7 +472,7 @@ inline colperm_t getSuperLUOrdering()
 //      //printf( "MY_PERMC\n";
 //      ret = MY_PERMC;
 //    }
-    printf("Info: Not a valid Ordering. Use COLAMD.\n");
+    ABORT("PDLINSOLX: Not a valid Ordering\n");
   }
   printf("COLAMD\n");
   return ret;
