@@ -38,6 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include <unistd.h>
+#include <math.h>
 #include <superlu_ddefs.h>
 #include "../Util.h"
 #include "../dreadMM.h"
@@ -83,8 +84,7 @@ int main(int argc, char *argv[])
   double *a_0, *a, *b_0, *b, *xact;
   int_t *asub_0, *asub, *xa;
   int_t m, n, nnz;
-  int_t nprow, npcol;
-  int iam, info;
+  int iam, info, size;
   FILE *fp;
   char fileA[128];
   char fileB[128];
@@ -93,8 +93,8 @@ int main(int argc, char *argv[])
   int reps = 1;
   int verbose = 0;
 
-  nprow = 1; /* Default process rows.      */
-  npcol = 1; /* Default process columns.   */
+  int nprow = 0; /* Default process rows.      */
+  int npcol = 0; /* Default process columns.   */
   const int nrhs = 1; /* Number of right-hand side. */
 
   /* ------------------------------------------------------------
@@ -109,6 +109,12 @@ int main(int argc, char *argv[])
   /* ------------------------------------------------------------
    INITIALIZE THE SUPERLU PROCESS GRID.
    ------------------------------------------------------------*/
+  // Compute 2d grid if not supplied by the user via -r N -c M
+  if (!npcol || !npcol) {
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    npcol = floor(sqrt(size));
+    nprow = floor(size/npcol);
+  }
   superlu_gridinit(MPI_COMM_WORLD, nprow, npcol, &grid);
 
   /* Bail out if I do not belong in the grid. */
@@ -443,8 +449,7 @@ inline colperm_t getSuperLUOrdering()
     }
     if (strcmp(env_p, "COLAMD") == 0)
     {
-      printf("COLAMD\n");
-      return COLAMD;
+      ABORT("PDDRIVE: COLAMD is not available for SuperLU_DIST!");
     }
     if (strcmp(env_p, "METIS_AT_PLUS_A") == 0)
     {
