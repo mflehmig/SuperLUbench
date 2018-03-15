@@ -269,7 +269,7 @@ int main(int argc, char *argv[])
 
       Lstore = (SCPformat *) L.Store;
       Ustore = (NCPformat *) U.Store;
-      printf("%d, %i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n",
+      printf("===, %d, %i, %i, %d, %d, %.3f, %.3f, %le, %e, %e, %lli \n",
              superlumt_options.nprocs, k, info, Lstore->nnz, Ustore->nnz,
              slu_mem.for_lu / 1e6, slu_mem.total_needed / 1e6, err, rpg, rcond,
              finish - start);
