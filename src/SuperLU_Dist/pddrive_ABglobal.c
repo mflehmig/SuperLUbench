@@ -250,7 +250,6 @@ int main(int argc, char *argv[])
   {
     print_sp_ienv_dist(&options);
     print_options_dist(&options);
-    printf("ISPEC: %d\n", options.ColPerm);
   }
 
   // Initialize ScalePermstruct and LUstruct.
@@ -258,8 +257,12 @@ int main(int argc, char *argv[])
   LUstructInit(n, &LUstruct);
 
   if (!iam)
+  {
+    printf("ISPEC: %d\n", options.ColPerm);
     printf("\n#MPI-Procs, #Iter, info, #NNZ in L, #NNZ in U, L\\U [MB], Total [MB],"
            " ||X-Xtrue||/||X||, RPG, RCN, dgssvx()\n");
+  }
+
   // Solve the system 'reps' times.  Since A, b and x are overwritten by pdgssvx_ABglobal(),
   // we need to recreate them in each iteration (using the same memory locations).
   double err;
@@ -425,7 +428,7 @@ void parse_command_line(int argc, char *argv[], int* nprow, int* npcol,
 inline colperm_t getSuperLUOrdering()
 {
   colperm_t ret = NATURAL;  // Default value.
-  printf("SuperLU Ordering: ");
+  //printf("SuperLU Ordering: ");
   const char* env_p = getenv("ORDERING");
   // if(const char* env_p = getenv("ORDERING")) {
   if (env_p != NULL)
@@ -434,17 +437,17 @@ inline colperm_t getSuperLUOrdering()
     //if (env.compare("NATURAL") == 0) {
     if (strcmp(env_p, "NATURAL") == 0)
     {
-      printf("NATURAL\n");
+      //printf("NATURAL\n");
       return NATURAL;
     }
     if (strcmp(env_p, "MMD_ATA") == 0)
     {
-      printf("MMD_ATA\n");
+      //printf("MMD_ATA\n");
       return MMD_ATA;
     }
     if (strcmp(env_p, "MMD_AT_PLUS_A") == 0)
     {
-      printf("MMD_AT_PLUS_A\n");
+      //printf("MMD_AT_PLUS_A\n");
       return MMD_AT_PLUS_A;
     }
     if (strcmp(env_p, "COLAMD") == 0)
@@ -453,12 +456,12 @@ inline colperm_t getSuperLUOrdering()
     }
     if (strcmp(env_p, "METIS_AT_PLUS_A") == 0)
     {
-      printf("METIS_AT_PLUS_A\n");
+      //printf("METIS_AT_PLUS_A\n");
       return METIS_AT_PLUS_A;
     }
     if (strcmp(env_p, "PARMETIS") == 0)
     {
-      printf("PARMETIS\n");
+      //printf("PARMETIS\n");
       return PARMETIS;
     }
     // ZOLTAN is only defined in SuperLU, not in SuperLU_MT. But since the user
@@ -473,7 +476,7 @@ inline colperm_t getSuperLUOrdering()
 //    }
     ABORT("PDDRIVE: Not a valid Ordering");
   }
-  printf("NATURAL\n");
+  //printf("NATURAL\n");
   return ret;
 }
 
