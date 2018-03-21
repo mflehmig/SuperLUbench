@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
    INITIALIZE THE SUPERLU PROCESS GRID.
    ------------------------------------------------------------*/
   // Compute 2d grid if not supplied by the user via -r N -c M
-  if (!npcol || !npcol) {
+  if (!nprow || !npcol) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     npcol = floor(sqrt(size));
     nprow = floor(size/npcol);
