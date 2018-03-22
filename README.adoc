@@ -1,6 +1,6 @@
 = Readme for SuperLUbench
 Martin Schroschk <martin.schroschk at tu-dresden dot de>
-:doctype: book
+:doctype: article
 :toc: right
 :reproducible:
 //:source-highlighter: coderay
@@ -13,7 +13,7 @@ Martin Schroschk <martin.schroschk at tu-dresden dot de>
 == SuperLUbench
 Benchmark solving large sparse linear systems of form _Ax=b_ using the libraries *SuperLU*, *SuperLU_MT* and *SuperLU_DIST* <<slu_hp>>.
 
-SuperLU is used in many applications around the software world. The search on comparisons or benchmarking with respect to the three flavors of SuperLU gave nothing. Thus, I built this comparison up on the examples that are shipped with SuperLU. This code might help to decide whether to use SuperLU, SuperLU_MT or SuperLU_Dist to solve a given linear system. Important metrics for this decision are memory footprint and time to solution.
+SuperLU is used in many applications around the software world. The search on comparisons or benchmarking with respect to the three flavors of SuperLU gave nothing. Thus, I built a benchmark for comparison up on the examples that are shipped with SuperLU. This code might help to decide whether to use SuperLU, SuperLU_MT or SuperLU_Dist to solve a given linear system (or class of systems) on a specific system. Important metrics for this decision are memory footprint and time to solution.
 
 
 === On SuperLU
@@ -21,11 +21,65 @@ For those readers which are not familiar with SuperLU, here is a quote on SuperL
 
 "_SuperLU is a general purpose library for the direct solution of large, sparse, nonsymmetric systems of linear equations. The library is written in C and is callable from either C or Fortran program. It uses MPI, OpenMP and CUDA to support various forms of parallelism. It supports both real and complex datatypes, both single and double precision, and 64-bit integer indexing. The library routines performs an LU decomposition with partial pivoting and triangular system solves through forward and back substitution. The LU factorization routines can handle non-square matrices but the triangular solves are performed only for square matrices. The matrix columns may be preordered (before factorization) either through library or user supplied routines.[...]_" <<slu_hp>>
 
+.General View on SuperLU
+|===
+|Library | Target Architecture | Parallelization
+
+|SuperLU
+|Sequential Systems
+|-
+
+|SuperLU_MT
+|Shared-Memory Systems
+|OpenMP or PThreads
+
+|SuperLU_DIST
+|Highly Parallel Distributed-Memory Systems and hybrid Systems with GPUs (not covered here)s
+|MPI+OpenMP+CUDA
+|===
+
 More detailed information can be found on the website of link:++http://crd-legacy.lbl.gov/~xiaoye/SuperLU++[SuperLU] and within the link:++http://crd-legacy.lbl.gov/~xiaoye/SuperLU/ug.pdf++[Users' Guide].
 
 
+
+=== Benchmarks
+The three benchmarks and the used driver routines to solve the system Ax=b are given in the following table.
+
+.Benchmarks and Driver Routines
+|===
+|Library | Benchmark | Driver Routine
+
+|SuperLU
+|dlinsolx
+|`dgssvx()`
+
+|SuperLU_MT
+|pdlinsolx
+|`pdgssvx()`
+
+|SuperLU_DIST
+|pddrive_ABglobal
+|`pdgssvx_ABglobal()`
+|===
+
+
+The benchmarks are build up on examples shipped with SuperLU, SuperLU_MT and SuperLU_DIST, respectively. The basic steps are:
+
+. Parse command line arguments
+. Read in linear system and known solution from files
+. Allocate memory and create SuperLU data structures
+. For i = 1, ..., R
+  - `Start timing`
+  - Compute solution of Ax=b (LU factorization and triangular solve)
+  - `Finish timing`
+  - Compare solution with known solution
+  - Output statistics
+. Clean up, i.e, free memory
+
+
+
 === Configure and Make
-Building these three benchmarks should be quite easy:
+Building the three benchmarks of SuperLUbench is quite easy:
 
 1. Step: Adopt the settings in `config.inc` to the specific needs and system.
 2. Step: Call `make all` from top level directory to compile all three benchmarks in one rush.
@@ -34,67 +88,88 @@ Moreover, there is a Makefile for each benchmark in the corresponding directory 
 
 
 === Usage
-Once build, the benchmarks can be feeded with the provided linear system in the `example` directory.
+==== Examples
+Once build, the benchmarks can be feed with the provided linear system in the `example` directory.
 
-_src/SuperLU/_:
+SuperLU
 ----
+cd src/SuperLU/
 ./dlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
 ----
 
-_src/SuperLU_MT/_:
+SuperLU_MT
 ----
-OMP_NUM_THREADS=2 ./pdlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
+cd src/SuperLU_MT/
+export OMP_NUM_THREADS=2
+./pdlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
 ----
 
-_src/SuperLU_DIST/_:
+SuperLU_DIST
 ----
+cd src/SuperLU_DIST/
+export OMP_NUM_THREADS=1
 mpirun -np 2 ./pddrive_ABglobal -r 2 -c 1 -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
 ----
+For further information on controlling the parallelism, we refer to section <<Control Parallelism>>.
 
-
-==== Options
-All three benchmarks share these options:
+==== Arguments and Options
+All three benchmarks share these command line arguments:
 [source,bash]
 ----
 -A  <FILE>     Matrix A
 -b  <FILE>     Right hand side vector b
 -x  <FILE>     Known solution vector x to verify the computed result
 -R  <int>      Number of repetitions to solve Ax=b
+-v             Print additional information and statistics
 ----
 
-SuperLU_DIST has some additional options:
+
+The parallelism of SuperLU_MT is controlled via:
+----
+-p  <int>      Number of threads to use
+----
+
+The parallelism of SuperLU_DIST is controlled via:
 ----
 -r  <int>      Process rows
 -c  <int>      Process columns
 ----
-See section <<Control Parallelism>> for more information on this options.
+These two values control the partitioning of the matrices among the MPI processes and must be provided by the user. See section <<Control Parallelism>> for more information on this options.
 
 
 ==== Input Formats
-Although there are multiple popular matrix formats (e.g., Harwell-Boeing, Triplet), only the Matrix Market format is supported at the moment <<mtx>>.
+Although there are multiple popular matrix formats (e.g., Harwell-Boeing, Triplet), only the Matrix Market format <<mtx>> is supported at the moment.
 
 
 ==== Control Parallelism
-SuperLU_MT can be build with support of PThreads or OpenMP. If build with OpenMP, than the number of threads used by SuperLU_MT is controlled via the environment variabel `OMP_NUM_THREADS`.
-*Todo*: How to control number of PThreads?
+*SuperLU_MT:*
+The number of threads `N` used by the solver method `pdgssvx()` is controlled via the command line argument `-p N`. This holds for both cases: Whether SuperLU_MT library was build with support of PThreads or OpenMP.
+Oversubscription, i.e., number of threads > available physical CPUs, can be (but not necessarly needs to be) a drawback with respect to performance.
+The optimal number of threads with respect to time to solution, depends on the specific linear system and the computing system.
 
-Since SuperLU_DIST uses MPI, the benchmark `pddrive_ABglobal` needs to be invoked with `mpirun -np NP`, where NP is the number of MPI processes to use. Furthermore, the matrix A is decomposed in a block fashion way. *Todo* Explain this and what is -r and -c.
+*SuperLU_DIST:*
+Since SuperLU_DIST uses MPI, the benchmark `pddrive_ABglobal` needs to be invoked with `mpirun -np NP`, where NP is the number of MPI processes to use. Furthermore, the matrix A is decomposed in a block fashion way. *Todo* Explain this and what is -r and -c. Additionally, it might by crucial for performance to specify the environment variable `OMP_NUM_THREADS`, since SuperLU_DIST can also make use of threading. Oversubscription, i.e., sum of MPI processes and threads > available physical CPUs, can be a drawback with respect to performance! The default value for OMP_NUM_THREADS is implementation depend (, e.g., libgomp: one thread per CPU is used).
 
-
-=== Benchmarks
-All three benchmarks are build up on examples shipped with SuperLU, SuperLU_MT and SuperLU_DIST, respectively. 
-
+SuperLU FAQ gives the following advice in order to choose values for `-r` and `-c`:
+"For best performance, the process grid should be arranged as square as possible. When square grid is not possible, it is better to set the row dimension (nprow) slightly smaller than the column dimension (npcol). For example, the following are good options: 2x3, 2x4, 4x4, 4x8, etc." <<slu_faq>>
 
 
 
 === Additional Information for Developers
-There are some thoughts I want to dump for future references.
+There are some thoughts I want to dump for future references:
 
 The used functions `dgssvx()`, `pdgssvx()` and `pdgssvx_ABglobal()` within SuperLUbench may overwrite the structures holding A and b. Thus, the values are stored in additional arrays and restored before iteratively calling the solve functions.
 
 In SuperLU and SuperLU_MT it seems to be sufficient to recreate the arrays `double *a` and `double *rhsb`.
 
-Additional to this two arrays, the array `asub` (holding the row indices) needs to be recreated in SuperLU_DIST since `pdgssvx_ABglobal()` may overwrite it. I'm not sure, if this also holds for the methods `dgssvx()` and `pdgssvx()`, respectively.
+Additional to this two arrays, the array `asub` (holding the row indices) needs to be recreated in SuperLU_DIST since `pdgssvx_ABglobal()` may overwrite it. I'm not sure, if this also holds for the methods `dgssvx()` and `pdgssvx()`, respectively. Since I have not seen any issues with that, I did not investigate further.
+
+
+
+
+== TODOS
+
+1. Some functions of SuperLU, SuperLU_MT and SuperLU_DIST output information via `printf` to `stdout` and `stderr`. For instance, the methods `dinf_norm_error()` and `dinf_norm_error_dist()` print the norm value directly to `stdout`. From my point of view, the better way would be to return the norm value so that it can be used for further processing. 
 
 
 
@@ -104,6 +179,7 @@ Additional to this two arrays, the array `asub` (holding the row indices) needs 
 == References
 
 - [[[slu_hp, 1]]] Xiaoye Sherry Li, Website of SuperLU, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/[SuperLU]
-- [[[mtx, 2]]] US National Institute of Standards and Technology, Matrix Market, https://math.nist.gov/MatrixMarket/
+- [[[mtx, 2]]]    US National Institute of Standards and Technology, Matrix Market, https://math.nist.gov/MatrixMarket/
+- [[slu_faq, 3]]  Xiaoye Sherry Li, SuperLU FAQ, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/faq.html#superlu_dist:process_grid
 
 
