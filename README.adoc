@@ -11,7 +11,7 @@ Martin Schroschk <martin.schroschk at tu-dresden dot de>
 
 
 == SuperLUbench
-Benchmark solving large sparse linear systems of form _Ax=b_ using the libraries *SuperLU*, *SuperLU_MT* and *SuperLU_DIST* <<slu_hp>>.
+Benchmark the libraries *SuperLU*, *SuperLU_MT* and *SuperLU_DIST* <<slu_hp>> for solving large sparse linear systems of form _Ax=b_.
 
 SuperLU is used in many applications around the software world. The search on comparisons or benchmarking with respect to the three flavors of SuperLU gave nothing. Thus, I built a benchmark for comparison up on the examples that are shipped with SuperLU. This code might help to decide whether to use SuperLU, SuperLU_MT or SuperLU_Dist to solve a given linear system (or class of systems) on a specific system. Important metrics for this decision are memory footprint and time to solution.
 
@@ -154,6 +154,9 @@ SuperLU FAQ gives the following advice in order to choose values for `-r` and `-
 "For best performance, the process grid should be arranged as square as possible. When square grid is not possible, it is better to set the row dimension (nprow) slightly smaller than the column dimension (npcol). For example, the following are good options: 2x3, 2x4, 4x4, 4x8, etc." <<slu_faq>>
 
 
+=== Collection of Linear Systems
+The repository <<slubenchcollection>> provides a collection of sparse linear system for benchmarking purposes.
+
 
 === Additional Information for Developers
 There are some thoughts I want to dump for future references:
@@ -178,8 +181,9 @@ Additional to this two arrays, the array `asub` (holding the row indices) needs 
 [bibliography]
 == References
 
-- [[[slu_hp, 1]]] Xiaoye Sherry Li, Website of SuperLU, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/[SuperLU]
-- [[[mtx, 2]]]    US National Institute of Standards and Technology, Matrix Market, https://math.nist.gov/MatrixMarket/
-- [[slu_faq, 3]]  Xiaoye Sherry Li, SuperLU FAQ, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/faq.html#superlu_dist:process_grid
+- [[[slu_hp, 1]]]  Xiaoye Sherry Li, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/[Website of SuperLU]
+- [[[mtx, 2]]]     US National Institute of Standards and Technology, https://math.nist.gov/MatrixMarket/[Matrix Market Format]
+- [[[slu_faq, 3]]] Xiaoye Sherry Li, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/faq.html#superlu_dist:process_grid[SuperLU FAQ]
+- [[[slubenchcollection, 4]]] Martin Schroschk, https://github.com/mflehmig/SuperLUbench-Collection[SuperLUbench-Collection]
 
 
