@@ -101,7 +101,7 @@ SuperLU_MT
 ----
 cd src/SuperLU_MT/
 export OMP_NUM_THREADS=2
-./pdlinsolx -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
+./pdlinsolx -p 2 -A ../../example/A.mtx -b ../../example/b.mtx -x ../../example/x.mtx
 ----
 
 SuperLU_DIST
@@ -128,6 +128,7 @@ The parallelism of SuperLU_MT is controlled via:
 ----
 -p  <int>      Number of threads to use
 ----
+If SuperLU_MT was built with OpenMP support, it is necessary to set the environment variable OMP_NUM_THREADS equal to the value of *-p*!
 
 The parallelism of SuperLU_DIST is controlled via:
 ----
@@ -145,7 +146,7 @@ Although there are multiple popular matrix formats (e.g., Harwell-Boeing, Triple
 *SuperLU_MT:*
 The number of threads `N` used by the solver method `pdgssvx()` is controlled via the command line argument `-p N`. This holds for both cases: Whether SuperLU_MT library was build with support of PThreads or OpenMP.
 Oversubscription, i.e., number of threads > available physical CPUs, can be (but not necessarly needs to be) a drawback with respect to performance.
-The optimal number of threads with respect to time to solution, depends on the specific linear system and the computing system.
+The optimal number of threads with respect to time to solution depends on the specific linear system and the computing system.
 
 *SuperLU_DIST:*
 Since SuperLU_DIST uses MPI, the benchmark `pddrive_ABglobal` needs to be invoked with `mpirun -np NP`, where NP is the number of MPI processes to use. Furthermore, the matrix A is decomposed in a block fashion way. *Todo* Explain this and what is -r and -c. Additionally, it might by crucial for performance to specify the environment variable `OMP_NUM_THREADS`, since SuperLU_DIST can also make use of threading. Oversubscription, i.e., sum of MPI processes and threads > available physical CPUs, can be a drawback with respect to performance! The default value for OMP_NUM_THREADS is implementation depend (, e.g., libgomp: one thread per CPU is used).
