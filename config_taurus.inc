@@ -8,7 +8,7 @@ LD_SUPERLU=-L${SUPERLU_LIB} -lsuperlu -Wl,-rpath,${SUPERLU_LIB}
 
 # SuperLU_MT
 I_SUPERLUMT=-I${SUPERLU_MT_INC}
-LD_SUPERLUMT=-l${SUPERLU_MT_LIB}/superlu_OPENMP.a -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl
+LD_SUPERLUMT=${SUPERLU_MT_LIB}/superlu_OPENMP.a -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl
 #I_SUPERLUMT=-I/home/mf/opt/PARADOM/AP3/SuperLU_MT_3.1/SRC/
 #LD_SUPERLUMT=-l/home/mf/opt/PARADOM/AP3/SuperLU_MT_3.1/lib/libsuperlu_mt_OPENMP.a
 
