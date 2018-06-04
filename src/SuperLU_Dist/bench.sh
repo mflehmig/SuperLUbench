@@ -1,17 +1,20 @@
 #!/bin/bash
 
 exe="pddrive_ABglobal"
-declare -a ORDERINGS=("COLAMD" "MMD_ATA" "MMD_AT_PLUS_A")
+declare -a ORDERINGS=("MMD_AT_PLUS_A")
 #declare -a ORDERINGS=("NATURAL" "COLAMD" "MMD_ATA" "MMD_AT_PLUS_A")
 
+if [ "$#" -ne 4 ]; then
+  echo "Usage: sh bench.sh FILE_PREFIX NUM_ITER MAX_THREADS MAX_MPI"
+else
 
-prefix=../linearSystems/hqp3_60/FullUMF_AMD/FullUMF_3_
+prefix=$1
 A=${prefix}A.mtx
 b=${prefix}b.mtx
 x=${prefix}x.mtx
-R=3
-max_threads=2
-max_mpi=2
+R=$2
+max_threads=$3
+max_mpi=$4
 
 echo "         date: ($date)"
 echo "            A: ${A}"
@@ -38,17 +41,24 @@ else
 fi
 
 
-for i in "${ORDERINGS[@]}"; do
-   echo -e "\n\nORDERING: $i"
-   export ORDERING=${i}
-   for np in `seq 1 ${max_mpi}`; do
-      echo "j : $np"
-      if [ "$use_srun" = true ]; then
-        srun -c ${np} ./${exe} -A ${A} -b ${b} -x ${x} -R ${R}
-      else
-        mpirun -np ${np} ./${exe} -A ${A} -b ${b} -x ${x} -R ${R}
-        # -c -r
-      fi
+for k in "${ORDERINGS[@]}"; do
+   echo -e "\n\nORDERING: $k"
+   export ORDERING=${k}
+   for i in `seq 1 ${max_mpi}`; do
+     for j in `seq 1 ${max_mpi}`; do
+       let ij=$i*$j
+       if [ "$ij" -le "$max_mpi" ]; then
+         if [ "$use_srun" = true ]; then
+           echo "srun --ntasks $ij -c $i -r $j ..."
+#           srun --ntasks $ij ./${exe} -c $i -r $j -A ${A} -b ${b} -x ${x} -R ${R}
+         else
+           mpirun -np ${np} ./${exe} -A ${A} -b ${b} -x ${x} -R ${R}
+           # -c -r
+         fi
+       fi
+     done
    done
 done
 export ORDERING=""
+
+fi

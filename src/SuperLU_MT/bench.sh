@@ -1,15 +1,19 @@
 #!/bin/bash
 
 exe="pdlinsolx"
-declare -a ORDERINGS=("NATURAL" "COLAMD" "MMD_ATA" "MMD_AT_PLUS_A")
+declare -a ORDERINGS=("COLAMD")
+#declare -a ORDERINGS=("NATURAL" "COLAMD" "MMD_ATA" "MMD_AT_PLUS_A")
 
+if [ "$#" -ne 3 ]; then
+  echo "Usage: sh bench.sh FILE_PREFIX NUM_ITER MAX_THREADS"
+else
 
-prefix=../linearSystems/hqp3_60/FullUMF_AMD/FullUMF_3_
+prefix=$1
 A=${prefix}A.mtx
 b=${prefix}b.mtx
 x=${prefix}x.mtx
-R=5
-max_threads=4
+R=$2
+max_threads=$3
 
 echo "      A: ${A}"
 echo "      b: ${b}"
@@ -47,3 +51,5 @@ for i in "${ORDERINGS[@]}"; do
    done
 done
 export ORDERING=""
+
+fi
