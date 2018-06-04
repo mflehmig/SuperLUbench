@@ -156,7 +156,7 @@ SuperLU FAQ gives the following advice in order to choose values for `-r` and `-
 
 
 === Collection of Linear Systems
-The repository <<slubenchcollection>> provides a collection of sparse linear system for benchmarking purposes.
+The repository _SuperLUbench-Collection_ <<slubenchcollection>> provides a collection of sparse linear system for benchmarking purposes.
 
 
 === Additional Information for Developers
@@ -176,6 +176,23 @@ Additional to this two arrays, the array `asub` (holding the row indices) needs 
 1. Some functions of SuperLU, SuperLU_MT and SuperLU_DIST output information via `printf` to `stdout` and `stderr`. For instance, the methods `dinf_norm_error()` and `dinf_norm_error_dist()` print the norm value directly to `stdout`. From my point of view, the better way would be to return the norm value so that it can be used for further processing. 
 
 
+== Reproducible Benchmarks on Taurus
+This is the interactive way:
+....
+// Go to Haswell node
+$ srun --pty --nodes 1 --ntasks 1 --cpus-per-task 12 --time=02:00:00 --mem-per-cpu=2500 -p interactive --account=p_paradom zsh
+$ cd /scratch/mflehmig/PARADOM/
+
+// Clone Repositories
+$ git clone https://github.com/mflehmig/SuperLUbench-Collection.git
+$ git clone https://github.com/mflehmig/SuperLUbench.git
+$ cd SuperLUbench/
+$ ln -s ../SuperLUBench-Collection mtx
+
+$ source load_modules.sh
+$ ln -s config_taurus.inc config.inc
+$ make -j
+....
 
 
 
@@ -186,5 +203,13 @@ Additional to this two arrays, the array `asub` (holding the row indices) needs 
 - [[[mtx, 2]]]     US National Institute of Standards and Technology, https://math.nist.gov/MatrixMarket/[Matrix Market Format]
 - [[[slu_faq, 3]]] Xiaoye Sherry Li, http://crd-legacy.lbl.gov/~xiaoye/SuperLU/faq.html#superlu_dist:process_grid[SuperLU FAQ]
 - [[[slubenchcollection, 4]]] Martin Schroschk, https://github.com/mflehmig/SuperLUbench-Collection[SuperLUbench-Collection]
+
+
+
+
+
+
+
+
 
 
