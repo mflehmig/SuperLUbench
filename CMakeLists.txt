@@ -25,7 +25,12 @@ set(SUPERLU_DIST_SRC "/home/thomas/Code/libraries/SuperLU_DIST_6.1.0/SRC")
 set(INCLUDE_DIR "/usr/include \
     /usr/src \
     /usr/src/linux-headers-4.15.0-29/include/linux/")
-set(CMAKE_COMPILE_FLAGS "-std=c11")
+
+# FLAGS
+#set(CMAKE_BUILD_TYPE DEBUG) 
+set(CMAKE_C_FLAGS "-std=c11")
+set(CMAKE_C_FLAGS_DEBUG "-std=c11 -O0 -ggdb")
+set(CMAKE_EXE_LINKER_FLAGS "-fopenmp")
 
 # SEARCH FOR DEPENDENCIES
 find_library(INTEL intel)
@@ -44,6 +49,7 @@ if(NOT INTEL)
     if(BLAS)
         message(STATUS "BLAS found")
         link_libraries(${BLAS})
+        message(${BLAS})
     else()
         message(SEND_ERROR "No BLAS library found")
     endif()
@@ -59,30 +65,56 @@ else()
     link_libraries(${INTEL})
 endif()
 
-find_library(HAVE_SUPERLU NAMES superlu PATHS ${SUPERLU_LIB} ${LIB_SEARCH_PATCH})
+find_library(SUPERLU NAMES superlu PATHS ${SUPERLU_LIB} ${LIB_SEARCH_PATCH})
 if(HAVE_SUPERLU)
     message(STATUS "Found SuperLU")
 else()
     message("No SuperLU found. Target SuperLU_bench will fail.")
 endif()
 
-find_library(HAVE_SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEARCH_PATH})
-if(HAVE_SUPERLU_DIST)
+find_library(SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEARCH_PATH})
+if(SUPERLU_DIST)
     message(STATUS "Found SuperLU_dist")
+    link_libraries(${SUPERLU_DIST})
 else()
     message("No SuperLU_dist found. Target SuperLU_Dist_bench will fail.")
 endif()
 
-find_library(HAVE_SUPERLU_MT NAMES superlu_mt PATHS ${SUPERLU_MT_LIB} ${LIB_SEARCH_PATH})
+find_library(SUPERLU_MT NAMES superlu_mt PATHS ${SUPERLU_MT_LIB} ${LIB_SEARCH_PATH})
 if(HAVE_SUPERLU_MT)
     message(STATUS "Found SuperLU_MT")
 else()
     message("No SuperLU_MT found. Target SuperLU_MT_bench will fail.")
 endif()
 
+find_library(LIBM NAMES m PATHS ${LIB_SEARCH_PATH})
+if(LIBM)
+    message(STATUS "Found libmath")
+    link_libraries(${LIBM})
+else()
+    message("No libmath found.")
+endif()
+
+find_library(PARMETIS NAMES parmetis ${LIB_SEARCH_PATH})
+if(PARMETIS)
+    message(STATUS "Found parMETIS")
+    link_libraries(${PARMETIS})
+else()
+    message("No parMETIS found")
+endif()
+
+#i think we don't need metis if we have parmetis
+#find_library(METIS NAMES metis ${LIB_SEARCH_PATH})
+#if(METIS)
+#    message(STATUS "Found metis")
+#    link_libraries(${METIS})
+#else()
+#    message("No metis found")
+#endif()
+
 # FOR ALL TARGETS
 include_directories(${INCLUDE_DIR})
-include_directories(SYSTEM ${MPI_C_INCLUDE_PATH})
+include_directories(${MPI_C_INCLUDE_PATH})
 link_directories(${MPI_C_LINK_FLAGS})
 set(CMAKE_COMPILE_FLAGS ${CMAKE_COMPILE_FLAGS} ${MPI_C_COMPILE_FLAGS})
 
