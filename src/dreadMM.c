@@ -41,7 +41,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ctype.h>
 
-#include "slu_ddefs.h"
+#include "superlu_ddefs.h"
 
 #undef EXPAND_SYM
 

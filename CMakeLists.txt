@@ -1,0 +1,107 @@
+cmake_minimum_required (VERSION 2.6)
+project (SuperLUbench)
+
+# VERSION NUMBER
+set (SuperLUbench_VERSION_MAJOR 1)
+set (SuperLUbench_VERSION_MINOR 0)
+
+# SET POLICIES
+if(POLICY CMP0015)
+  cmake_policy(PUSH)
+  cmake_policy(SET CMP0015 NEW)
+endif()
+
+# HARD-CODED PATHS
+set(LIB_SEARCH_PATH "/usr/lib 
+    /usr/local 
+    /usr/share 
+    /usr/lib/x86_64-linux-gnu")
+set(SUPERLU_LIB "")
+set(SUPERLU_SRC "")
+set(SUPERLU_MT_LIB "")
+set(SUPERLU_MT_LIB "")
+set(SUPERLU_DIST_LIB "/home/thomas/Code/libraries/builds/SuperLU_DIST_6.1.0/lib")
+set(SUPERLU_DIST_SRC "/home/thomas/Code/libraries/SuperLU_DIST_6.1.0/SRC")
+set(INCLUDE_DIR "/usr/include \
+    /usr/src \
+    /usr/src/linux-headers-4.15.0-29/include/linux/")
+set(CMAKE_COMPILE_FLAGS "-std=c11")
+
+# SEARCH FOR DEPENDENCIES
+find_library(INTEL intel)
+if(NOT INTEL)
+    message("Intel library not found")
+    
+    find_library(LAPACK NAMES atlas lapack PATHS ${LIB_SEARCH_PATH})
+    if(LAPACK)
+        message(STATUS "LAPACK found")
+        link_libraries(${LAPACK})
+    else()
+        message(SEND_ERROR "No LAPACK library found")
+    endif()
+
+    find_library(BLAS NAMES openblas blas PATHS ${LIB_SEARCH_PATH})
+    if(BLAS)
+        message(STATUS "BLAS found")
+        link_libraries(${BLAS})
+    else()
+        message(SEND_ERROR "No BLAS library found")
+    endif()
+    
+    find_package(MPI REQUIRED)
+    if(MPI_FOUND)
+        message(STATUS "MPI found")
+    else()
+        message(SEND_ERROR "No MPI library found")
+    endif()
+else()
+    message(STATUS "Intel library found")
+    link_libraries(${INTEL})
+endif()
+
+find_library(HAVE_SUPERLU NAMES superlu PATHS ${SUPERLU_LIB} ${LIB_SEARCH_PATCH})
+if(HAVE_SUPERLU)
+    message(STATUS "Found SuperLU")
+else()
+    message("No SuperLU found. Target SuperLU_bench will fail.")
+endif()
+
+find_library(HAVE_SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEARCH_PATH})
+if(HAVE_SUPERLU_DIST)
+    message(STATUS "Found SuperLU_dist")
+else()
+    message("No SuperLU_dist found. Target SuperLU_Dist_bench will fail.")
+endif()
+
+find_library(HAVE_SUPERLU_MT NAMES superlu_mt PATHS ${SUPERLU_MT_LIB} ${LIB_SEARCH_PATH})
+if(HAVE_SUPERLU_MT)
+    message(STATUS "Found SuperLU_MT")
+else()
+    message("No SuperLU_MT found. Target SuperLU_MT_bench will fail.")
+endif()
+
+# FOR ALL TARGETS
+include_directories(${INCLUDE_DIR})
+include_directories(SYSTEM ${MPI_C_INCLUDE_PATH})
+link_directories(${MPI_C_LINK_FLAGS})
+set(CMAKE_COMPILE_FLAGS ${CMAKE_COMPILE_FLAGS} ${MPI_C_COMPILE_FLAGS})
+
+# TARGET: SuperLU
+add_executable (SuperLU_bench src/SuperLU/dlinsolx.c src/dreadMM src/Util)
+target_include_directories(SuperLU_bench PRIVATE ${SUPERLU_INCLUDE} ${SUPERLU_SRC})
+target_link_libraries(SuperLU_bench ${MPI_C_LIBRARIES})
+
+# TARGET: SuperLU_MT
+add_executable (SuperLU_MT_bench src/SuperLU_MT/pdlinsolx.c src/dreadMM src/Util)
+target_include_directories(SuperLU_MT_bench PRIVATE ${SUPERLU_MT_INCLUDE} ${SUPERLU_MT_SRC})
+target_link_libraries(SuperLU_MT_bench ${MPI_C_LIBRARIES})
+
+#TARGET: SuperLU_dist
+add_executable (SuperLU_Dist_bench src/SuperLU_Dist/pddrive_ABglobal.c src/dreadMM src/Util)
+target_include_directories(SuperLU_Dist_bench PRIVATE ${SUPERLU_DIST_INCLUDE} ${SUPERLU_DIST_SRC})
+target_link_libraries(SuperLU_Dist_bench ${MPI_C_LIBRARIES})
+
+# SET POLICIES
+if(POLICY CMP0015)
+    cmake_policy(POP)
+endif()

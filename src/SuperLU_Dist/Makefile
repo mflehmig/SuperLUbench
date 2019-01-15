@@ -7,11 +7,11 @@ EXECUTABLE=pddrive_ABglobal
 all: $(SOURCES) $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(MPICC) $(LD_SUPERLUDIST) $(OBJECTS) -o $@
+	$(MPICC) $(OBJECTS) -o $@  $(LDFLAGS) $(LD_SUPERLUDIST)
 
 .c.o:
 	$(MPICC) $(CFLAGS) $(I_SUPERLUDIST) $< -o $@
 
 .PHONY: clean
 clean:
-	rm -f *.o $(EXECUTABLE)
+	rm -f *.o $(EXECUTABLE) ../*.o
