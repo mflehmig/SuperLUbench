@@ -12,10 +12,10 @@ if(POLICY CMP0015)
 endif()
 
 # HARD-CODED PATHS
-set(LIB_SEARCH_PATH "/usr/lib 
-    /usr/local 
-    /usr/share 
-    /usr/lib/x86_64-linux-gnu")
+set(LIB_SEARCH_PATH1 "/usr/lib")
+set(LIB_SEARCH_PATH2 "/usr/local")
+set(LIB_SEARCH_PATH3 "/usr/share")
+set(LIB_SEARCH_PATH4 "/usr/lib/x86_64-linux-gnu")
 set(SUPERLU_LIB "")
 set(SUPERLU_SRC "")
 set(SUPERLU_MT_LIB "")
@@ -27,9 +27,9 @@ set(INCLUDE_DIR "/usr/include \
     /usr/src/linux-headers-4.15.0-29/include/linux/")
 
 # FLAGS
-#set(CMAKE_BUILD_TYPE DEBUG) 
+set(CMAKE_BUILD_TYPE DEBUG) 
 set(CMAKE_C_FLAGS "-std=c11")
-set(CMAKE_C_FLAGS_DEBUG "-std=c11 -O0 -ggdb")
+set(CMAKE_C_FLAGS_DEBUG "-Wall -std=c11 -O0 -g")
 set(CMAKE_EXE_LINKER_FLAGS "-fopenmp")
 
 # SEARCH FOR DEPENDENCIES
@@ -37,7 +37,7 @@ find_library(INTEL intel)
 if(NOT INTEL)
     message("Intel library not found")
     
-    find_library(LAPACK NAMES atlas lapack PATHS ${LIB_SEARCH_PATH})
+    find_library(LAPACK NAMES atlas lapack PATHS ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
     if(LAPACK)
         message(STATUS "LAPACK found")
         link_libraries(${LAPACK})
@@ -45,7 +45,7 @@ if(NOT INTEL)
         message(SEND_ERROR "No LAPACK library found")
     endif()
 
-    find_library(BLAS NAMES openblas blas PATHS ${LIB_SEARCH_PATH})
+    find_library(BLAS NAMES openblas blas PATHS ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
     if(BLAS)
         message(STATUS "BLAS found")
         link_libraries(${BLAS})
@@ -65,14 +65,14 @@ else()
     link_libraries(${INTEL})
 endif()
 
-find_library(SUPERLU NAMES superlu PATHS ${SUPERLU_LIB} ${LIB_SEARCH_PATCH})
+find_library(SUPERLU NAMES superlu PATHS ${SUPERLU_LIB} ${LIB_SEARCH_PATCH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
 if(HAVE_SUPERLU)
     message(STATUS "Found SuperLU")
 else()
     message("No SuperLU found. Target SuperLU_bench will fail.")
 endif()
 
-find_library(SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEARCH_PATH})
+find_library(SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
 if(SUPERLU_DIST)
     message(STATUS "Found SuperLU_dist")
     link_libraries(${SUPERLU_DIST})
@@ -80,14 +80,14 @@ else()
     message("No SuperLU_dist found. Target SuperLU_Dist_bench will fail.")
 endif()
 
-find_library(SUPERLU_MT NAMES superlu_mt PATHS ${SUPERLU_MT_LIB} ${LIB_SEARCH_PATH})
+find_library(SUPERLU_MT NAMES superlu_mt PATHS ${SUPERLU_MT_LIB} ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
 if(HAVE_SUPERLU_MT)
     message(STATUS "Found SuperLU_MT")
 else()
     message("No SuperLU_MT found. Target SuperLU_MT_bench will fail.")
 endif()
 
-find_library(LIBM NAMES m PATHS ${LIB_SEARCH_PATH})
+find_library(LIBM NAMES m PATHS ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
 if(LIBM)
     message(STATUS "Found libmath")
     link_libraries(${LIBM})
@@ -95,7 +95,7 @@ else()
     message("No libmath found.")
 endif()
 
-find_library(PARMETIS NAMES parmetis ${LIB_SEARCH_PATH})
+find_library(PARMETIS NAMES parmetis ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
 if(PARMETIS)
     message(STATUS "Found parMETIS")
     link_libraries(${PARMETIS})
@@ -113,10 +113,11 @@ endif()
 #endif()
 
 # FOR ALL TARGETS
-include_directories(${INCLUDE_DIR})
-include_directories(${MPI_C_INCLUDE_PATH})
-link_directories(${MPI_C_LINK_FLAGS})
+#include_directories(${INCLUDE_DIR})
+#include_directories(${MPI_C_INCLUDE_PATH})
+#link_directories(${MPI_C_LINK_FLAGS})
 set(CMAKE_COMPILE_FLAGS ${CMAKE_COMPILE_FLAGS} ${MPI_C_COMPILE_FLAGS})
+set(CMAKE_C_COMPILER ${MPI_C_COMPILER})
 
 # TARGET: SuperLU
 add_executable (SuperLU_bench src/SuperLU/dlinsolx.c src/dreadMM src/Util)
@@ -130,7 +131,7 @@ target_link_libraries(SuperLU_MT_bench ${MPI_C_LIBRARIES})
 
 #TARGET: SuperLU_dist
 add_executable (SuperLU_Dist_bench src/SuperLU_Dist/pddrive_ABglobal.c src/dreadMM src/Util)
-target_include_directories(SuperLU_Dist_bench PRIVATE ${SUPERLU_DIST_INCLUDE} ${SUPERLU_DIST_SRC})
+target_include_directories(SuperLU_Dist_bench PRIVATE ${SUPERLU_DIST_LIB} ${SUPERLU_DIST_SRC})
 target_link_libraries(SuperLU_Dist_bench ${MPI_C_LIBRARIES})
 
 # SET POLICIES
