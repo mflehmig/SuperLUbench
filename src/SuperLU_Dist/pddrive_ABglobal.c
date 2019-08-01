@@ -215,11 +215,13 @@ int main(int argc, char *argv[])
     }
   } // Read b and x
 
-//  *trans = 'N';
-//  ldx = n;
-//  ldb = m;
-//  dGenXtrue_dist(n, nrhs, xact, n);
-//  dFillRHS_dist(trans, nrhs, xact, n, &A, b, m);
+#ifdef _DIST
+  //*trans = 'N';
+  //ldx = n;
+  //ldb = m;
+  dGenXtrue_dist(n, nrhs, xact, n);
+  //dFillRHS_dist(trans, nrhs, xact, n, &A, b, m);
+#endif
 
   if (!(berr = doubleMalloc_dist(nrhs)))
     ABORT("Malloc fails for berr[].");

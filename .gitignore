@@ -14,3 +14,7 @@ pddrive_ABglobal
 *.project
 *.cproject
 *.settings
+
+# CMake stuff
+/CMakeFiles/
+SuperLUbenchConfig.h.in

@@ -45,13 +45,15 @@ if(NOT INTEL)
         message(SEND_ERROR "No LAPACK library found")
     endif()
 
-    find_library(BLAS NAMES openblas blas PATHS ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
-    if(BLAS)
-        message(STATUS "BLAS found")
-        link_libraries(${BLAS})
-        message(${BLAS})
+    find_library(BLAS NAMES mkl openblas blas PATHS /home/thomas/Code/libraries/builds/CombBLAS_beta_16_2/lib ${LIB_SEARCH_PATH1} ${LIB_SEARCH_PATH2} ${LIB_SEARCH_PATH3} ${LIB_SEARCH_PATH4})
+    link_libraries(${BLAS})
+    find_library(COMBBLAS NAMES CombBLAS PATHS /home/thomas/Code/libraries/builds/CombBLAS_beta_16_2/lib)
+    if(COMBBLAS)
+        message(STATUS "COMBBLAS found")
+        link_libraries(${COMBBLAS})
+        message(${COMBBLAS})
     else()
-        message(SEND_ERROR "No BLAS library found")
+        message(SEND_ERROR "No COMBBLAS library found")
     endif()
     
     find_package(MPI REQUIRED)
@@ -76,6 +78,7 @@ find_library(SUPERLU_DIST NAMES superlu_dist PATHS ${SUPERLU_DIST_LIB} ${LIB_SEA
 if(SUPERLU_DIST)
     message(STATUS "Found SuperLU_dist")
     link_libraries(${SUPERLU_DIST})
+    #add_definitions(-D_DIST)
 else()
     message("No SuperLU_dist found. Target SuperLU_Dist_bench will fail.")
 endif()
@@ -103,35 +106,36 @@ else()
     message("No parMETIS found")
 endif()
 
-#i think we don't need metis if we have parmetis
-#find_library(METIS NAMES metis ${LIB_SEARCH_PATH})
-#if(METIS)
-#    message(STATUS "Found metis")
-#    link_libraries(${METIS})
-#else()
-#    message("No metis found")
-#endif()
+#i think we don't need metis if we have parmetis i think we do
+find_library(METIS NAMES metis ${LIB_SEARCH_PATH})
+if(METIS)
+    message(STATUS "Found metis")
+    link_libraries(${METIS})
+else()
+    message("No metis found")
+endif()
 
 # FOR ALL TARGETS
 #include_directories(${INCLUDE_DIR})
 #include_directories(${MPI_C_INCLUDE_PATH})
 #link_directories(${MPI_C_LINK_FLAGS})
 set(CMAKE_COMPILE_FLAGS ${CMAKE_COMPILE_FLAGS} ${MPI_C_COMPILE_FLAGS})
-set(CMAKE_C_COMPILER ${MPI_C_COMPILER})
+set(CMAKE_C_COMPILER ${MPI_CXX_COMPILER})
 
-# TARGET: SuperLU
+# TARGET: SuperLU_bench
 add_executable (SuperLU_bench src/SuperLU/dlinsolx.c src/dreadMM src/Util)
 target_include_directories(SuperLU_bench PRIVATE ${SUPERLU_INCLUDE} ${SUPERLU_SRC})
 target_link_libraries(SuperLU_bench ${MPI_C_LIBRARIES})
 
-# TARGET: SuperLU_MT
+# TARGET: SuperLU_MT_bench
 add_executable (SuperLU_MT_bench src/SuperLU_MT/pdlinsolx.c src/dreadMM src/Util)
 target_include_directories(SuperLU_MT_bench PRIVATE ${SUPERLU_MT_INCLUDE} ${SUPERLU_MT_SRC})
 target_link_libraries(SuperLU_MT_bench ${MPI_C_LIBRARIES})
 
-#TARGET: SuperLU_dist
-add_executable (SuperLU_Dist_bench src/SuperLU_Dist/pddrive_ABglobal.c src/dreadMM src/Util)
-target_include_directories(SuperLU_Dist_bench PRIVATE ${SUPERLU_DIST_LIB} ${SUPERLU_DIST_SRC})
+#TARGET: SuperLU_dist_bench
+add_executable(SuperLU_Dist_bench src/SuperLU_Dist/pddrive_ABglobal.c src/dreadMM src/Util)
+target_compile_definitions(SuperLU_Dist_bench PRIVATE _DIST=1)
+target_include_directories(SuperLU_Dist_bench PRIVATE ${SUPERLU_DIST_LIB} ${SUPERLU_DIST_SRC} /home/thomas/Code/libraries/SuperLU_DIST_6.1.0/CBLAS /home/thomas/Code/libraries/SuperLU_DIST_6.1.0/SRC)
 target_link_libraries(SuperLU_Dist_bench ${MPI_C_LIBRARIES})
 
 # SET POLICIES

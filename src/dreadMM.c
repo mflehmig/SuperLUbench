@@ -146,8 +146,11 @@ void dreadMM(FILE *fp, int *m, int *n, int *nonz, double **nzval, int **rowind, 
 
   *m = *n;
   printf("m %lld, n %lld, nonz %lld\n", (long long) *m, (long long) *n, (long long) *nonz);
-  //MS dallocateA_dist(*n, new_nonz, nzval, rowind, colptr); /* Allocate storage */
-  dallocateA(*n, new_nonz, nzval, rowind, colptr); /* Allocate storage */
+#ifdef _DIST
+  dallocateA_dist(*n, new_nonz, nzval, rowind, colptr); /* Allocate storage */
+#else
+  dAllocateA(*n, new_nonz, nzval, rowind, colptr); /* Allocate storage */
+#endif
   a = *nzval;
   asub = *rowind;
   xa = *colptr;
@@ -260,7 +263,7 @@ void dreadMM(FILE *fp, int *m, int *n, int *nonz, double **nzval, int **rowind, 
 
 static void dreadrhs(int m, double *b)
 {
-  FILE *fp, *fopen();
+  FILE *fp, *fopen(char* file, char* descriptor);
   int i;
 
   if (!(fp = fopen("b.dat", "r")))
